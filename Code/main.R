@@ -5,6 +5,7 @@ library(sf)
 library(dplyr)
 library(here)
 library(ggplot2)
+library(tidyverse)
 
 # Source all required function files
 source(here("code/utils/spatial_utils.R"))
