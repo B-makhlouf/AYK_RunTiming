@@ -2,14 +2,20 @@ library(sdmTMB)
 library(dplyr)
 library(sf)
 library(tidyr)
+library(ggplot2)
+library(viridisLite)
+library(viridis)
 
 ## Read in the Kusko edges shapefile 
 kusko_edges <- st_read("/Users/benjaminmakhlouf/Spatial Data/Cleaned AYK Shapefiles/Kusko_cleaned.shp")
+## Read in the Basin 
+kusko_basin <- st_read("/Users/benjaminmakhlouf/Desktop/Research/isoscapes_new/Kusko/Kusko_basin.shp")
 
 # Load in all production data 
 ALL_prod_Data <- read.csv("/Users/benjaminmakhlouf/Research_repos/AYK_RunTiming/Analysis_Results/all_doy_tributary_values.csv")
 
 # Function to extract points on lines for a given set of edges
+# Updated to ensure rid is preserved
 extract_points_on_lines <- function(edges) {
   edges_with_points <- edges %>%
     mutate(point_on_line = st_point_on_surface(geometry))
@@ -80,12 +86,13 @@ for (i in 1:length(quartiles_to_process)) {
     edges_with_coords <- extract_points_on_lines(current_edges)
     
     # Create data frame for this year/quartile combination
-    # Using numeric quartile value instead of the string "Q#"
+    # Now including rid as a unique identifier
     current_tidy_data <- data.frame(
       X = edges_with_coords$X,
       Y = edges_with_coords$Y,
       X_km = edges_with_coords$X / 1000,
       Y_km = edges_with_coords$Y / 1000,
+      rid = edges_with_coords$rid,  # Add the rid here
       Year = year_val,
       Quartile = numeric_quartile,  # Using the numeric value
       prod_value = current_prod_data$basin_assign_norm,
@@ -104,22 +111,17 @@ tidy_prod_data <- bind_rows(tidy_data_list)
 # Make sure Quartile is numeric
 tidy_prod_data$Quartile <- as.numeric(tidy_prod_data$Quartile)
 
+# Print a count of unique rid values to verify
+print(paste("Number of unique rid values in tidy data:", length(unique(tidy_prod_data$rid))))
 
-# Save this tidy data frame for future use
-write.csv(tidy_prod_data, file = "tidy_production_data_by_year_quartile.csv", row.names = FALSE)
+################ 
+################ Data is now in the correct form 
 
-# For sdmTMB use - create a mesh with the full dataset
-# You might want to subset this for initial model exploration
-mesh <- make_mesh(tidy_prod_data, c("X_km", "Y_km"), 
-                  cutoff = 5,
-                  n_knots = 150)
-
-
-# Plot the mesh
+#### Make the mesh 
+mesh <- make_mesh(tidy_prod_data, c("X_km", "Y_km"), cutoff = 10) 
 plot(mesh)
 
-# Fit a Tweedie spatial random field GLMM with a smoother for depth:
-
+# Fit a Tweedie spatial random field GLMM
 fit <- sdmTMB(
   prod_value ~ 1,
   data = tidy_prod_data, mesh = mesh,
@@ -128,26 +130,81 @@ fit <- sdmTMB(
   spatiotemporal = "iid"
 )
 
-nd <- replicate_df(qcs_grid, "Year", unique(tidy_prod_data$year))
+# Create a prediction grid that includes rid
+# First, get unique combinations of X, Y, and rid from the original data
+unique_locations <- tidy_prod_data %>%
+  select(X, Y, X_km, Y_km, rid) %>%
+  distinct()
+
+# Create replicated data frame with all years for each location
+nd <- unique_locations %>%
+  tidyr::crossing(Year = unique(tidy_prod_data$Year))
+
+# Make predictions
 predictions <- predict(fit, newdata = nd)
 
-pred <- group_by(predictions, X, Y) |>
+# Summarize predictions by rid to maintain all sites
+pred <- predictions %>%
+  group_by(rid) %>%
   summarise(
+    X = first(X),
+    Y = first(Y),
     sd_est = sd(est),
     cv_est = sd(est) / mean(est),
-    sd_rf = sd(est_rf)) |>
-  dplyr::ungroup()
+    sd_rf = sd(est_rf)
+  ) %>%
+  ungroup()
 
-ggplot(pred, aes(X, Y, col = sd_est)) + 
-  geom_point() +
-  scale_color_viridis()
+# Verify counts
+print(paste("Number of unique locations:", nrow(unique_locations)))
+print(paste("Number of sites after summarizing:", nrow(pred)))
 
-ggplot(pred, aes(X, Y, col = cv_est)) + 
-  geom_point() +
-  scale_color_viridis()
+# Create the plot with basin boundary and river network
+basin_df <- st_as_sf(kusko_basin)
 
-# Map CV of estimates through time
-ggplot(pred, aes(X, Y, col = sd_rf)) + 
-  geom_point() +
-  scale_color_viridis()
 
+# Add the pred values back to kusko_edges, filtered to the min_stream_order 
+
+kusko_edges <- kusko_edges %>%
+  filter(Str_Order >= min_strOrd) %>%
+  left_join(pred, by = "rid")
+
+
+ggplot() +
+  # Add the basin outline
+  geom_sf(data = basin_df, fill = NA, color = "black", size = 0.5) +
+  # Add the river network colored by standard deviation
+  geom_sf(data = kusko_edges, aes(color = sd_est), size = 0.7) +
+  # Use viridis color scale
+  scale_color_viridis(name = "Standard\nDeviation", 
+                      option = "plasma", 
+                      direction = -1) +  # Reverse direction for better contrast
+  # Add a title and proper labels
+  labs(title = "Variability in Fish Run Timing Across the Kuskokwim River Network",
+       subtitle = paste("Based on data from", min(years_to_process), "to", max(years_to_process)),
+       x = "Longitude", y = "Latitude") +
+  # Use a cleaner theme for maps
+  theme_minimal() +
+  # Additional theme adjustments for maps
+  theme(
+    panel.grid.major = element_line(color = "grey90", linewidth = 0.2),
+    panel.grid.minor = element_blank(),
+    plot.title = element_text(face = "bold"),
+    legend.position = "right",
+    legend.key.height = unit(1, "cm")
+  )
+
+
+
+
+
+# Alternative plot using cv_est (coefficient of variation) instead of sd_est
+ggplot() +
+  geom_sf(data = basin_df, fill = NA, color = "black", size = 0.5) +
+  geom_sf(data = kusko_edges, color = "blue", size = 0.3, alpha = 0.6) +
+  geom_point(data = pred, aes(X, Y, color = cv_est)) +
+  scale_color_viridis(name = "CV of\nEstimates") +
+  labs(title = "Coefficient of Variation in Fish Run Timing",
+       subtitle = "Higher values indicate more variable timing across years",
+       x = "Longitude", y = "Latitude") +
+  theme_minimal()
