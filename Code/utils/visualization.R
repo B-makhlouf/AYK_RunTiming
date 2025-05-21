@@ -518,3 +518,70 @@ create_doy_raw_production_map <- function(final_result, basin_assign_norm, gg_hi
   message(paste("Created PNG raw production map:", output_filepath))
   invisible(output_filepath)
 }
+
+
+#' Create a histogram comparing total HUC contribution to quartile contribution
+#'
+#' @param final_result SF object with HUC data for current quartile
+#' @param all_hucs_data SF object with HUC data for entire run
+#' @param quartile_label Label for the current quartile
+#' @return ggplot object with the histogram
+create_huc_total_quartile_histogram <- function(final_result, all_hucs_data, quartile_label) {
+  # Make sure we have the Name column
+  name_col <- "Name"
+  
+  # Merge the current quartile data with total data for all HUCs
+  # First extract/organize total data for all HUCs
+  total_hucs <- all_hucs_data %>%
+    select(Name, percent_of_total_run) %>%
+    rename(total_percent = percent_of_total_run)
+  
+  # Create a merged dataset
+  merged_hucs <- final_result %>%
+    left_join(total_hucs, by = "Name") %>%
+    # Sort by total percent descending
+    arrange(desc(total_percent))
+  
+  # Need to reorder the HUC names based on the total contribution
+  # Create a factor level ordering for the HUC names
+  merged_hucs$Name <- factor(merged_hucs$Name, 
+                             levels = merged_hucs$Name[order(merged_hucs$total_percent, decreasing = TRUE)])
+  
+  # Create the bar plot
+  ggplot(merged_hucs, aes(x = Name)) +
+    # Total contribution as gray bars
+    geom_col(aes(y = total_percent), fill = "gray80", alpha = 0.9) +
+    # Current quartile contribution as colored bars
+    geom_col(aes(y = percent_of_total_run, fill = percent_of_total_run), alpha = 0.9) +
+    # Use YlOrRd color scale for the current quartile
+    scale_fill_gradientn(
+      colors = brewer.pal(9, "YlOrRd"),
+      name = "% of Total Run\n(Current Quartile)",
+      labels = function(x) paste0(round(x, 1), "%")
+    ) +
+    # Format the y-axis as percentages
+    scale_y_continuous(
+      labels = function(x) paste0(round(x, 1), "%"),
+      expand = c(0, 0)
+    ) +
+    # Use horizontal bars for better readability of HUC names
+    coord_flip() +
+    labs(
+      title = paste("HUC Contribution:", quartile_label),
+      subtitle = "Gray bars: Total contribution across entire run\nColored bars: Current quartile",
+      x = "",
+      y = "Percent of Total Run"
+    ) +
+    theme_minimal() +
+    theme(
+      plot.title = element_text(hjust = 0.5, size = 11, face = "bold"),
+      plot.subtitle = element_text(hjust = 0.5, size = 9),
+      axis.text.y = element_text(size = 8),
+      panel.grid.major.y = element_blank(),
+      legend.position = "right",
+      legend.title = element_text(size = 9),
+      plot.margin = margin(5, 10, 5, 5, "mm"),
+      plot.background = element_rect(fill = "white", color = NA),
+      panel.background = element_rect(fill = "white", color = NA)
+    )
+}
