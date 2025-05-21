@@ -526,18 +526,37 @@ create_doy_raw_production_map <- function(final_result, basin_assign_norm, gg_hi
 #' @param all_hucs_data SF object with HUC data for entire run
 #' @param quartile_label Label for the current quartile
 #' @return ggplot object with the histogram
+#' Create a histogram comparing total HUC contribution to quartile contribution
+#'
+#' @param final_result SF object with HUC data for current quartile
+#' @param all_hucs_data SF object with HUC data for entire run
+#' @param quartile_label Label for the current quartile
+#' @return ggplot object with the histogram
 create_huc_total_quartile_histogram <- function(final_result, all_hucs_data, quartile_label) {
   # Make sure we have the Name column
   name_col <- "Name"
   
+  # Convert sf objects to regular data frames if needed
+  if (inherits(final_result, "sf")) {
+    final_result_df <- st_drop_geometry(final_result)
+  } else {
+    final_result_df <- final_result
+  }
+  
+  if (inherits(all_hucs_data, "sf")) {
+    all_hucs_df <- st_drop_geometry(all_hucs_data)
+  } else {
+    all_hucs_df <- all_hucs_data
+  }
+  
   # Merge the current quartile data with total data for all HUCs
   # First extract/organize total data for all HUCs
-  total_hucs <- all_hucs_data %>%
+  total_hucs <- all_hucs_df %>%
     select(Name, percent_of_total_run) %>%
     rename(total_percent = percent_of_total_run)
   
   # Create a merged dataset
-  merged_hucs <- final_result %>%
+  merged_hucs <- final_result_df %>%
     left_join(total_hucs, by = "Name") %>%
     # Sort by total percent descending
     arrange(desc(total_percent))
@@ -549,10 +568,11 @@ create_huc_total_quartile_histogram <- function(final_result, all_hucs_data, qua
   
   # Create the bar plot
   ggplot(merged_hucs, aes(x = Name)) +
-    # Total contribution as gray bars
-    geom_col(aes(y = total_percent), fill = "gray80", alpha = 0.9) +
-    # Current quartile contribution as colored bars
-    geom_col(aes(y = percent_of_total_run, fill = percent_of_total_run), alpha = 0.9) +
+    # Total contribution as gray bars with dark outline
+    geom_col(aes(y = total_percent), fill = "gray80", color = "gray50", alpha = 0.9) +
+    # Current quartile contribution as colored bars - position = "identity" is critical
+    geom_col(aes(y = percent_of_total_run, fill = percent_of_total_run), 
+             alpha = 0.9, position = "identity") +
     # Use YlOrRd color scale for the current quartile
     scale_fill_gradientn(
       colors = brewer.pal(9, "YlOrRd"),
@@ -568,7 +588,7 @@ create_huc_total_quartile_histogram <- function(final_result, all_hucs_data, qua
     coord_flip() +
     labs(
       title = paste("HUC Contribution:", quartile_label),
-      subtitle = "Gray bars: Total contribution across entire run\nColored bars: Current quartile",
+      subtitle = "Gray bars: Total contribution across entire run\nColored bars: Current quartile contribution",
       x = "",
       y = "Percent of Total Run"
     ) +
