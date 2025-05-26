@@ -1,3 +1,6 @@
+# doy_total_analysis.R
+# Functions for DOY Total Analysis - Updated to use raw production as default
+
 #' Perform DOY Quartile Analysis with Total Production Normalization
 #'
 #' @param year Character or numeric representing the year
@@ -39,9 +42,8 @@ DOY_Total_Analysis <- function(year, watershed, sensitivity_threshold, min_error
   # Set up watershed-specific priors
   priors <- setup_watershed_priors(edges, min_stream_order, watershed, natal_data)
   
-  # Create output directories
+  # Create output directories (REMOVED RawProduction subdirectory)
   dir.create(here("Basin Maps/DOY_Total/HUC"), showWarnings = FALSE, recursive = TRUE)
-  dir.create(here("Basin Maps/DOY_Total/HUC/RawProduction"), showWarnings = FALSE, recursive = TRUE)
   dir.create(here("Basin Maps/DOY_Total/Tribs"), showWarnings = FALSE, recursive = TRUE)
   
   # Return values storage
@@ -101,11 +103,11 @@ DOY_Total_Analysis <- function(year, watershed, sensitivity_threshold, min_error
     # Create improved histogram
     gg_hist <- create_doy_histogram(natal_data, current_subset, subset_labels[q])
     
-    # Create HUC map with production per km but showing % of total run
+    # Create HUC map with percent of total run (raw production as default)
     huc_filepath <- file.path(here("Basin Maps/DOY_Total/HUC"), 
                               paste0(subset_id, "_HUC", HUC, ".png"))
     
-    # Create HUC map
+    # Create HUC map using raw production visualization
     png(file = huc_filepath, width = 12, height = 10, units = "in", res = 300, bg = "white")
     
     # Set up the plotting layout
@@ -114,7 +116,7 @@ DOY_Total_Analysis <- function(year, watershed, sensitivity_threshold, min_error
                                                heights = unit(c(0.7, 0.3), "npc"),
                                                widths = unit(c(0.6, 0.4), "npc"))))
     
-    # Create main map plot with percent of total run
+    # Create main map plot with percent of total run (raw values)
     main_plot <- ggplot() +
       geom_sf(data = final_result, aes(fill = percent_of_total_run), color = "white", size = 0.1) +
       scale_fill_gradientn(
@@ -163,60 +165,6 @@ DOY_Total_Analysis <- function(year, watershed, sensitivity_threshold, min_error
           plot.background = element_rect(fill = "white", color = NA),
           panel.background = element_rect(fill = "white", color = NA)
         )
-      print(gg_hist, vp = viewport(layout.pos.row = 2, layout.pos.col = 1:2))
-    }
-    
-    dev.off()
-    
-    # Create HUC map with raw production values (percent of total)
-    raw_huc_filepath <- file.path(here("Basin Maps/DOY_Total/HUC/RawProduction"), 
-                                  paste0(subset_id, "_RawProd_HUC", HUC, ".png"))
-    
-    # Create raw production map
-    png(file = raw_huc_filepath, width = 12, height = 10, units = "in", res = 300, bg = "white")
-    
-    # Set up the plotting layout
-    grid.newpage()
-    pushViewport(viewport(layout = grid.layout(2, 2, 
-                                               heights = unit(c(0.7, 0.3), "npc"),
-                                               widths = unit(c(0.6, 0.4), "npc"))))
-    
-    # Create main map plot with raw percent of total run
-    main_raw_plot <- ggplot() +
-      geom_sf(data = final_result, aes(fill = percent_of_total_run), color = "white", size = 0.1) +
-      scale_fill_gradientn(
-        colors = brewer.pal(9, "YlOrRd"),
-        name = "Percent of\nTotal Run",
-        na.value = "grey95",
-        labels = function(x) paste0(round(x, 1), "%"),
-        guide = guide_colorbar(
-          barwidth = 1, barheight = 15,
-          frame.colour = "grey40", ticks.colour = "grey40",
-          show.limits = TRUE
-        )
-      ) +
-      coord_sf(datum = NA) +
-      labs(
-        title = paste0(subset_labels[q], ": Raw Percent of Total Run - ", watershed, " Watershed"),
-        subtitle = paste("Year", year, "- Sensitivity:", sensitivity_threshold, 
-                         "- Min Stream Order:", min_stream_order)
-      ) +
-      theme(
-        plot.title = element_text(size = 14, face = "bold", hjust = 0.5, color = "grey30"),
-        plot.subtitle = element_text(size = 10, hjust = 0.5, color = "grey50"),
-        legend.position = "right",
-        legend.title = element_text(size = 9, face = "bold", color = "grey30"),
-        legend.text = element_text(color = "grey30"),
-        panel.background = element_rect(fill = "white", color = NA),
-        plot.background = element_rect(fill = "white", color = NA),
-        plot.margin = margin(5, 5, 5, 5, "mm")
-      )
-    
-    # Print raw production map and histogram
-    print(main_raw_plot, vp = viewport(layout.pos.row = 1, layout.pos.col = 1))
-    print(huc_histogram, vp = viewport(layout.pos.row = 1, layout.pos.col = 2))
-    
-    if (!is.null(gg_hist)) {
       print(gg_hist, vp = viewport(layout.pos.row = 2, layout.pos.col = 1:2))
     }
     

@@ -1,5 +1,5 @@
 # main.R
-# Main execution script for DOY timing analysis
+# Main execution script for DOY timing analysis - Updated to use raw production as default
 
 library(sf)
 library(dplyr)
@@ -12,7 +12,6 @@ source(here("code/utils/spatial_utils.R"))
 source(here("code/utils/visualization.R"))
 source(here("code/assignment.R"))
 source(here("code/doy_analysis.R"))
-source(here("code/cumulative_doy_analysis.R"))
 source(here("code/export_doy_values.R"))
 source(here("code/doy_total_analysis.R"))
 source(here("code/cumulative_doy_total_analysis.R"))
@@ -23,33 +22,58 @@ source(here("code/export_doy_total_values.R"))
 #' @param base_dir Base directory to clean
 #' @return Number of files removed
 clean_doy_outputs <- function(base_dir = here("Basin Maps")) {
-  message("Cleaning previous DOY outputs...")
+  message("Cleaning ALL previous DOY outputs...")
   
-  # Define directories to clean
+  # Define ALL directories that could contain DOY output files
   doy_dirs <- c(
     "DOY_Quartile",
-    "DOY_Cumulative",
-    "DOY_Total",
-    "DOY_Cumulative_Total"
+    "DOY_Total", 
+    "DOY_Cumulative_Total",
+    "DOY_Cumulative",  # Include old directory in case it exists
+    "Fishing_Window"   # Include fishing window analysis
   )
   
   total_removed <- 0
+  
   for (dir in doy_dirs) {
     dir_path <- file.path(base_dir, dir)
     if (dir.exists(dir_path)) {
+      message(paste("  Cleaning directory:", dir_path))
+      
+      # Find ALL PNG files recursively in this directory
       png_files <- list.files(dir_path, 
                               pattern = "\\.png$", 
                               recursive = TRUE,
                               full.names = TRUE)
       
       if (length(png_files) > 0) {
+        message(paste("    Removing", length(png_files), "PNG files"))
         file.remove(png_files)
         total_removed <- total_removed + length(png_files)
+      } else {
+        message(paste("    No PNG files found in", dir))
       }
+    } else {
+      message(paste("  Directory does not exist:", dir_path))
     }
   }
   
-  message(paste(total_removed, "PNG files removed."))
+  # Also clean any DOY_Composites directory
+  composites_dir <- file.path(base_dir, "DOY_Composites")
+  if (dir.exists(composites_dir)) {
+    message(paste("  Cleaning composites directory:", composites_dir))
+    png_files <- list.files(composites_dir, 
+                            pattern = "\\.png$", 
+                            recursive = TRUE,
+                            full.names = TRUE)
+    if (length(png_files) > 0) {
+      message(paste("    Removing", length(png_files), "composite PNG files"))
+      file.remove(png_files)
+      total_removed <- total_removed + length(png_files)
+    }
+  }
+  
+  message(paste("TOTAL:", total_removed, "PNG files removed from all DOY directories."))
   return(total_removed)
 }
 
@@ -78,7 +102,7 @@ get_watershed_params <- function(watershed) {
 #' Process a single dataset for DOY timing analysis
 #'
 #' @param dataset Dataset name in the format "year_watershed"
-#' @param run_cumulative Whether to run cumulative DOY analysis
+#' @param run_cumulative Whether to run cumulative DOY analysis (deprecated for regular DOY)
 #' @return Invisibly returns NULL
 process_doy_dataset <- function(dataset, run_cumulative = TRUE) {
   # Extract year and watershed
@@ -91,7 +115,7 @@ process_doy_dataset <- function(dataset, run_cumulative = TRUE) {
   # Get watershed-specific parameters
   params <- get_watershed_params(watershed)
   
-  # Run DOY quartile analysis
+  # Run DOY quartile analysis (now uses raw production by default)
   message("  Processing DOY quartiles")
   DOY_Quartile_Analysis(
     year = year,
@@ -101,19 +125,6 @@ process_doy_dataset <- function(dataset, run_cumulative = TRUE) {
     min_stream_order = params$min_stream_order,
     HUC = 8
   )
-  
-  # Run cumulative DOY analysis if requested
-  if (run_cumulative) {
-    message("  Processing cumulative DOY analysis")
-    Cumulative_DOY_Analysis(
-      year = year,
-      watershed = watershed,
-      sensitivity_threshold = params$sensitivity_threshold,
-      min_error = params$min_error,
-      min_stream_order = params$min_stream_order,
-      HUC = 8
-    )
-  }
   
   # Clean up any variables that might cause conflicts in subsequent runs
   gc() # Force garbage collection
@@ -137,7 +148,7 @@ process_doy_total_dataset <- function(dataset, run_cumulative = TRUE) {
   # Get watershed-specific parameters
   params <- get_watershed_params(watershed)
   
-  # Run DOY total quartile analysis
+  # Run DOY total quartile analysis (now uses raw production by default)
   message("  Processing DOY total quartiles")
   DOY_Total_Analysis(
     year = year,
@@ -148,7 +159,7 @@ process_doy_total_dataset <- function(dataset, run_cumulative = TRUE) {
     HUC = 8
   )
   
-  # Run cumulative DOY total analysis if requested
+  # Run cumulative DOY total analysis if requested (uses raw production by default)
   if (run_cumulative) {
     message("  Processing cumulative DOY total analysis")
     Cumulative_DOY_Total_Analysis(
@@ -171,7 +182,7 @@ process_doy_total_dataset <- function(dataset, run_cumulative = TRUE) {
 #'
 #' @param years Vector of years to process
 #' @param watersheds Vector of watersheds to process
-#' @param run_cumulative Whether to run cumulative DOY analysis
+#' @param run_cumulative Whether to run cumulative DOY analysis (deprecated for regular DOY)
 #' @return Invisibly returns NULL
 run_doy_timing_analysis <- function(years, watersheds, run_cumulative = TRUE) {
   # Create all combinations of years and watersheds
@@ -185,7 +196,7 @@ run_doy_timing_analysis <- function(years, watersheds, run_cumulative = TRUE) {
   message(paste("Processing DOY timing analysis for datasets:"))
   message(paste(datasets, collapse = ", "))
   
-  # Clean outputs
+  # ALWAYS clean outputs before starting
   clean_doy_outputs()
   
   # Process each dataset
@@ -220,8 +231,8 @@ run_doy_total_timing_analysis <- function(years, watersheds, run_cumulative = TR
   message(paste("Processing DOY total timing analysis for datasets:"))
   message(paste(datasets, collapse = ", "))
   
-  # Clean outputs (optional, already done in run_doy_timing_analysis if run together)
-  # clean_doy_outputs()
+  # ALWAYS clean outputs before starting
+  clean_doy_outputs()
   
   # Process each dataset
   for (dataset in datasets) {
@@ -241,13 +252,13 @@ run_doy_total_timing_analysis <- function(years, watersheds, run_cumulative = TR
 #'
 #' @param years Vector of years to process
 #' @param watersheds Vector of watersheds to process
-#' @param run_cumulative Whether to run cumulative analysis
+#' @param run_cumulative Whether to run cumulative analysis (deprecated for regular DOY)
 #' @param export_data Whether to export data to CSV
 #' @return Invisibly returns NULL
 run_full_doy_analysis <- function(years, watersheds, 
                                   run_cumulative = TRUE,
                                   export_data = TRUE) {
-  # Run the timing analysis
+  # Run the timing analysis (which will clean outputs)
   run_doy_timing_analysis(years = years, 
                           watersheds = watersheds,
                           run_cumulative = run_cumulative)
@@ -258,7 +269,7 @@ run_full_doy_analysis <- function(years, watersheds,
     export_doy_analysis_results(
       years = years,
       watersheds = watersheds,
-      include_cumulative = run_cumulative
+      include_cumulative = FALSE  # Regular cumulative DOY no longer exists
     )
   }
   
@@ -276,7 +287,7 @@ run_full_doy_analysis <- function(years, watersheds,
 run_full_doy_total_analysis <- function(years, watersheds, 
                                         run_cumulative = TRUE,
                                         export_data = TRUE) {
-  # Run the timing analysis
+  # Run the timing analysis (which will clean outputs)
   run_doy_total_timing_analysis(years = years, 
                                 watersheds = watersheds,
                                 run_cumulative = run_cumulative)
@@ -305,12 +316,12 @@ run_full_doy_total_analysis <- function(years, watersheds,
 run_complete_doy_analysis <- function(years, watersheds, 
                                       run_cumulative = TRUE,
                                       export_data = TRUE) {
-  # First run standard DOY analysis
-  message("=== Running standard DOY analysis ===")
-  run_full_doy_analysis(years, watersheds, run_cumulative, export_data)
+  # First run standard DOY analysis (will clean outputs automatically)
+  message("=== Running standard DOY analysis (raw production) ===")
+  run_full_doy_analysis(years, watersheds, FALSE, export_data)
   
-  # Then run total-normalized DOY analysis
-  message("\n=== Running total-normalized DOY analysis ===")
+  # Then run total-normalized DOY analysis (will clean outputs automatically)
+  message("\n=== Running total-normalized DOY analysis (raw production) ===")
   run_full_doy_total_analysis(years, watersheds, run_cumulative, export_data)
   
   message("\n=== Complete DOY analysis workflow finished ===")
@@ -319,15 +330,15 @@ run_complete_doy_analysis <- function(years, watersheds,
 
 # Example usage:
 
-# Run standard DOY timing analysis for Kuskokwim watershed
+# Run standard DOY timing analysis for Kuskokwim watershed (raw production)
 # run_full_doy_analysis(
 #   years = c("2017", "2019", "2020", "2021"),
 #   watersheds = c("Kusko"),
-#   run_cumulative = TRUE,
+#   run_cumulative = FALSE,
 #   export_data = TRUE
 # )
 
-# Run total-normalized DOY analysis for Kuskokwim watershed
+# Run total-normalized DOY analysis for Kuskokwim watershed (raw production)
 run_full_doy_total_analysis(
   years = c("2017", "2019", "2020", "2021"),
   watersheds = c("Kusko"),
@@ -335,18 +346,10 @@ run_full_doy_total_analysis(
   export_data = TRUE
 )
 
-# Run both standard and total-normalized analyses together
+# Run both standard and total-normalized analyses together (both use raw production)
 # run_complete_doy_analysis(
 #   years = c("2017", "2019", "2020", "2021"),
 #   watersheds = c("Kusko"),
-#   run_cumulative = TRUE,
-#   export_data = TRUE
-# )
-
-# Run DOY timing analysis for both watersheds
-# run_complete_doy_analysis(
-#   years = c("2015", "2016"),
-#   watersheds = c("Yukon", "Kusko"),
 #   run_cumulative = TRUE,
 #   export_data = TRUE
 # )

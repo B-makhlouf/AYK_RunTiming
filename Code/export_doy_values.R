@@ -10,12 +10,12 @@ library(readr)
 #'
 #' @param years Vector of years to process
 #' @param watersheds Vector of watersheds to process
-#' @param include_cumulative Whether to include cumulative DOY analysis
+#' @param include_cumulative Whether to include cumulative DOY analysis (DEPRECATED - no longer used)
 #' @param output_dir Directory to save output CSV files
 #' @param cache_dir Directory to look for cached analysis results
 #' @return List with paths to created CSV files
 export_doy_analysis_results <- function(years, watersheds, 
-                                        include_cumulative = TRUE,
+                                        include_cumulative = FALSE,  # CHANGED: Default to FALSE, parameter kept for compatibility
                                         output_dir = here("Analysis_Results"),
                                         cache_dir = here("Data/Processed")) {
   
@@ -184,52 +184,12 @@ export_doy_analysis_results <- function(years, watersheds,
         message("    Error processing DOY quartiles: ", e$message)
       })
       
-      # Process cumulative DOY data if requested
+      # REMOVED: Process cumulative DOY data
+      # We no longer process Cumulative_DOY_Analysis results
+      # Only DOY_Cumulative_Total is processed via export_doy_total_analysis_results
+      
       if (include_cumulative) {
-        message("  Processing cumulative DOY data")
-        
-        tryCatch({
-          cum_doy_results <- Cumulative_DOY_Analysis(
-            year = year,
-            watershed = watershed,
-            sensitivity_threshold = sensitivity_threshold,
-            min_error = min_error,
-            min_stream_order = min_stream_order,
-            HUC = 8,
-            return_values = TRUE
-          )
-          
-          # Process each cumulative DOY quartile
-          for (q in 1:length(cum_doy_results)) {
-            if (is.null(cum_doy_results[[q]])) next
-            
-            message(paste("    Processing Cumulative DOY Q", q))
-            
-            cum_doy_metadata <- list(
-              year = year,
-              watershed = watershed,
-              analysis_type = "Cumulative_DOY",
-              quartile = paste0("Q", q)
-            )
-            
-            # Add HUC data
-            cum_doy_huc_df <- extract_data(cum_doy_results[[q]]$huc_result)
-            for (field in names(cum_doy_metadata)) {
-              cum_doy_huc_df[[field]] <- cum_doy_metadata[[field]]
-            }
-            all_huc_data <- rbind(all_huc_data, cum_doy_huc_df)
-            
-            # Add tributary data
-            cum_doy_trib_df <- extract_trib_data(
-              edges, 
-              cum_doy_results[[q]]$basin_assign_norm, 
-              cum_doy_metadata
-            )
-            all_trib_data <- rbind(all_trib_data, cum_doy_trib_df)
-          }
-        }, error = function(e) {
-          message("    Error processing cumulative DOY data: ", e$message)
-        })
+        message("  Note: Cumulative DOY analysis has been removed. Use DOY_Cumulative_Total instead.")
       }
     }
   }
@@ -261,10 +221,10 @@ export_doy_analysis_results <- function(years, watersheds,
   ))
 }
 
-
-export_doy_analysis_results(
-  watersheds = "Kusko",
-  years = 2018,
-  include_cumulative = FALSE,
-  output_dir = "output"
-)
+# Example usage (commented out)
+# export_doy_analysis_results(
+#   watersheds = "Kusko",
+#   years = 2018,
+#   include_cumulative = FALSE,  # CHANGED: No longer generates cumulative data
+#   output_dir = "output"
+# )

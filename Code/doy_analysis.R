@@ -1,5 +1,5 @@
 # doy_analysis.R
-# Functions for DOY (Day of Year) quartile analysis
+# Functions for DOY (Day of Year) quartile analysis - Updated to use raw production as default
 
 library(sf)
 library(dplyr)
@@ -52,9 +52,8 @@ DOY_Quartile_Analysis <- function(year, watershed, sensitivity_threshold, min_er
   # Set up watershed-specific priors
   priors <- setup_watershed_priors(edges, min_stream_order, watershed, natal_data)
   
-  # Create output directories
+  # Create output directories (REMOVED RawProduction subdirectory)
   dir.create(here("Basin Maps/DOY_Quartile/HUC"), showWarnings = FALSE, recursive = TRUE)
-  dir.create(here("Basin Maps/DOY_Quartile/HUC/RawProduction"), showWarnings = FALSE, recursive = TRUE)
   dir.create(here("Basin Maps/DOY_Quartile/Tribs"), showWarnings = FALSE, recursive = TRUE)
   
   # Return values storage
@@ -92,26 +91,9 @@ DOY_Quartile_Analysis <- function(year, watershed, sensitivity_threshold, min_er
     # Process HUC data
     final_result <- process_huc_data(edges, basin, Huc, basin_assign_rescale, HUC)
     
-    # Create HUC map with production per km
+    # Create HUC map (now showing raw production proportion as default)
     huc_filepath <- file.path(here("Basin Maps/DOY_Quartile/HUC"), 
                               paste0(subset_id, "_HUC", HUC, ".png"))
-    
-    create_doy_huc_map(
-      final_result = final_result,
-      basin_assign_norm = basin_assign_norm,
-      gg_hist = gg_hist,
-      year = year,
-      watershed = watershed,
-      sensitivity_threshold = sensitivity_threshold,
-      min_stream_order = min_stream_order,
-      HUC = HUC,
-      subset_label = subset_labels[q],
-      output_filepath = huc_filepath
-    )
-    
-    # Create HUC map with raw production proportion
-    raw_huc_filepath <- file.path(here("Basin Maps/DOY_Quartile/HUC/RawProduction"), 
-                                  paste0(subset_id, "_RawProd_HUC", HUC, ".png"))
     
     create_doy_raw_production_map(
       final_result = final_result,
@@ -123,7 +105,7 @@ DOY_Quartile_Analysis <- function(year, watershed, sensitivity_threshold, min_er
       min_stream_order = min_stream_order,
       HUC = HUC,
       subset_label = subset_labels[q],
-      output_filepath = raw_huc_filepath
+      output_filepath = huc_filepath
     )
     
     # Create tributary map

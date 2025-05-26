@@ -16,7 +16,7 @@ library(purrr)
 #' @param watershed Character: "Kusko" or "Yukon"
 #' @param quartile Character: "Q1", "Q2", "Q3", or "Q4"
 #' @param map_type Character: "HUC", "RawProduction", or "Tribs"
-#' @param cumulative Logical: whether to use cumulative maps
+#' @param cumulative Logical: whether to use cumulative maps (now only DOY_Cumulative_Total)
 #' @param output_dir Base directory to save output files
 #' @return Path to the created composite figure
 create_doy_quartile_composite <- function(watershed, 
@@ -28,7 +28,7 @@ create_doy_quartile_composite <- function(watershed,
   # Create specific output subdirectory based on categories
   subfolder <- paste0(
     watershed, "/",
-    ifelse(cumulative, "Cumulative_", ""),
+    ifelse(cumulative, "Cumulative_Total_", ""),  # CHANGED: Only reference Cumulative_Total
     "DOY/",
     map_type
   )
@@ -38,8 +38,8 @@ create_doy_quartile_composite <- function(watershed,
   
   # Determine base directory based on analysis type and cumulative flag
   if (cumulative) {
-    base_dir <- here("Basin Maps/DOY_Cumulative")
-    file_pattern <- paste0("^", watershed, "_\\d{4}_CumulativeDOY_", quartile)
+    base_dir <- here("Basin Maps/DOY_Cumulative_Total")  # CHANGED: Only use DOY_Cumulative_Total
+    file_pattern <- paste0("^", watershed, "_\\d{4}_CumulativeDOY_", quartile, "_Total")  # CHANGED: Add _Total suffix
   } else {
     base_dir <- here("Basin Maps/DOY_Quartile")
     file_pattern <- paste0("^", watershed, "_\\d{4}_DOY_", quartile)
@@ -111,7 +111,7 @@ create_doy_quartile_composite <- function(watershed,
     }
     
     # Create output filename
-    cumulative_label <- ifelse(cumulative, "Cumulative_", "")
+    cumulative_label <- ifelse(cumulative, "Cumulative_Total_", "")  # CHANGED: Update label
     output_filename <- paste0(cumulative_label, quartile, "_", map_type, "_Composite.png")
     output_path <- file.path(specific_output_dir, output_filename)
     
@@ -122,7 +122,7 @@ create_doy_quartile_composite <- function(watershed,
     
     # Create a title
     title_text <- paste(watershed, "Watershed -", 
-                        ifelse(cumulative, "Cumulative ", ""),
+                        ifelse(cumulative, "Cumulative Total ", ""),  # CHANGED: Update title
                         "DOY Quartile", quartile, 
                         "-", map_type, "Maps Across Years")
     
@@ -170,7 +170,7 @@ create_doy_quartile_composite <- function(watershed,
 #' @param watersheds Vector of watersheds to process
 #' @param quartiles Vector of quartiles to process
 #' @param map_types Vector of map types to process
-#' @param include_cumulative Whether to include cumulative maps
+#' @param include_cumulative Whether to include cumulative maps (now DOY_Cumulative_Total)
 #' @return List of paths to created composite figures
 process_all_doy_quartile_maps <- function(watersheds = c("Kusko", "Yukon"),
                                           quartiles = c("Q1", "Q2", "Q3", "Q4"),
@@ -203,7 +203,7 @@ process_all_doy_quartile_maps <- function(watersheds = c("Kusko", "Yukon"),
           successful_creations <- successful_creations + 1
         }
         
-        # Process cumulative maps if requested
+        # Process cumulative total maps if requested
         if (include_cumulative) {
           total_attempts <- total_attempts + 1
           
@@ -294,13 +294,13 @@ create_doy_composite_index <- function(output_dir = here("Basin Maps/DOY_Composi
     
     html_content <- c(html_content, "    </div>")
     
-    # Cumulative DOY quartiles
+    # Cumulative Total DOY quartiles (CHANGED: Only reference Cumulative_Total)
     html_content <- c(html_content,
-                      "    <h3>Cumulative DOY Quartiles</h3>",
+                      "    <h3>Cumulative Total DOY Quartiles</h3>",
                       "    <div class='figure-container'>")
     
-    # Filter figures for this watershed and cumulative DOY
-    pattern <- paste0("^", watershed, "/Cumulative_DOY/")
+    # Filter figures for this watershed and cumulative total DOY
+    pattern <- paste0("^", watershed, "/Cumulative_Total_DOY/")
     matching_paths <- rel_paths[grepl(pattern, rel_paths)]
     
     if (length(matching_paths) > 0) {
@@ -339,7 +339,7 @@ create_doy_composite_index <- function(output_dir = here("Basin Maps/DOY_Composi
 #' @param watersheds Vector of watersheds to process
 #' @param quartiles Vector of quartiles to process  
 #' @param map_types Vector of map types to process
-#' @param include_cumulative Whether to include cumulative maps
+#' @param include_cumulative Whether to include cumulative total maps
 #' @param create_index Whether to create an HTML index
 #' @return List of created composite figures and index path
 generate_all_doy_composites <- function(watersheds = c("Kusko", "Yukon"),
