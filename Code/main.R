@@ -39,8 +39,7 @@ clean_doy_outputs <- function(base_dir = here("Basin Maps")) {
     "DOY_Quartile",
     "DOY_Total", 
     "DOY_Cumulative_Total",
-    "DOY_Cumulative",
-    "Fishing_Window"
+    "DOY_Cumulative"
   )
   
   total_removed <- 0
@@ -402,5 +401,5 @@ run_full_doy_total_analysis(
 #   years = c("2017", "2019", "2020", "2021"),
 #   watersheds = c("Kusko"),
 #   run_cumulative = TRUE,
-#   export_data = TRUE
+  # export_data = TRUE
 # )

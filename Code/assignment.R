@@ -30,30 +30,30 @@ perform_assignment <- function(natal_data, edges, watershed, priors,
       assign <- (1/sqrt(2*pi*error^2)) * exp(-1*(iso_o - pid_iso)^2/(2*error^2)) * 
         priors$pid_prior * priors$StreamOrderPrior * priors$PresencePrior 
       
-      # Make a data frame with assign and the name column from edges 
-      assign_df <- data.frame(assign = assign, name = edges$Name)
-      
-      # Find the top 5% of values 
-      top_5_percent <- quantile(assign_df$assign, 0.95, na.rm = TRUE)
-      
-      # filter the values above the top 5% 
-      assign_df <- assign_df %>% filter(assign >= top_5_percent)
-      
-      # find the name with the most segments in the top 5% 
-      top_name <- assign_df %>% group_by(name) %>% 
-        summarise(count = n()) %>% 
-        arrange(desc(count)) %>% 
-        slice(1) %>% 
-        pull(name)
-      
-      hucs<- edges$Name
-      
-      # find the indices of the top name in the edges data frame
-      top_indices <- which(hucs == top_name)
-      non_top_indices <- which(hucs != top_name)
-      
-      assign[non_top_indices] <- 0 
-      
+      # # Make a data frame with assign and the name column from edges 
+      # assign_df <- data.frame(assign = assign, name = edges$Name)
+      # 
+      # # Find the top 5% of values 
+      # top_5_percent <- quantile(assign_df$assign, 0.95, na.rm = TRUE)
+      # 
+      # # filter the values above the top 5% 
+      # assign_df <- assign_df %>% filter(assign >= top_5_percent)
+      # 
+      # # find the name with the most segments in the top 5% 
+      # top_name <- assign_df %>% group_by(name) %>% 
+      #   summarise(count = n()) %>% 
+      #   arrange(desc(count)) %>% 
+      #   slice(1) %>% 
+      #   pull(name)
+      # 
+      # hucs<- edges$Name
+      # 
+      # # find the indices of the top name in the edges data frame
+      # top_indices <- which(hucs == top_name)
+      # non_top_indices <- which(hucs != top_name)
+      # 
+      # assign[non_top_indices] <- 0 
+      # 
     } else if (watershed == "Yukon") {
       # Yukon assignment with genetic priors
       gen.prior <- rep(0, length = length(pid_iso))
