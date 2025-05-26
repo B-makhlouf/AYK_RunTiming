@@ -1,28 +1,6 @@
 # cumulative_doy_total_analysis.R
 # Functions for cumulative DOY quartile analysis normalized to total production
-
-library(sf)
-library(dplyr)
-library(here)
-library(ggplot2)
-
-# Source the required utility files
-source(here("code/utils/spatial_utils.R"))
-source(here("code/utils/visualization.R"))
-source(here("code/assignment.R"))
-
-#' Perform Cumulative DOY Quartile Analysis with Total Production Normalization
-#'
-#' @param year Character or numeric representing the year
-#' @param watershed Character: "Kusko" or "Yukon"
-#' @param sensitivity_threshold Numeric threshold for assignment filtering
-#' @param min_error Minimum error value to use
-#' @param min_stream_order Minimum stream order to include
-#' @param HUC HUC level (e.g., 8, 10)
-#' @param return_values Whether to return the calculated values
-#' @return If return_values is TRUE, a list with results; otherwise NULL
-# cumulative_doy_total_analysis.R
-# Functions for cumulative DOY quartile analysis normalized to total production
+# UPDATED: Removed RawProduction folder and maps
 
 library(sf)
 library(dplyr)
@@ -79,9 +57,8 @@ Cumulative_DOY_Total_Analysis <- function(year, watershed, sensitivity_threshold
   # Set up watershed-specific priors
   priors <- setup_watershed_priors(edges, min_stream_order, watershed, natal_data)
   
-  # Create output directories
+  # Create output directories (REMOVED RawProduction subdirectory)
   dir.create(here("Basin Maps/DOY_Cumulative_Total/HUC"), showWarnings = FALSE, recursive = TRUE)
-  dir.create(here("Basin Maps/DOY_Cumulative_Total/HUC/RawProduction"), showWarnings = FALSE, recursive = TRUE)
   dir.create(here("Basin Maps/DOY_Cumulative_Total/Tribs"), showWarnings = FALSE, recursive = TRUE)
   
   # Create cumulative quartile subsets
@@ -253,59 +230,8 @@ Cumulative_DOY_Total_Analysis <- function(year, watershed, sensitivity_threshold
     
     dev.off()
     
-    # Create HUC map with raw production values (percent of total)
-    raw_huc_filepath <- file.path(here("Basin Maps/DOY_Cumulative_Total/HUC/RawProduction"), 
-                                  paste0(subset_id, "_RawProd_HUC", HUC, ".png"))
-    
-    # Create raw production map
-    png(file = raw_huc_filepath, width = 12, height = 10, units = "in", res = 300, bg = "white")
-    
-    # Set up the plotting layout
-    grid.newpage()
-    pushViewport(viewport(layout = grid.layout(2, 2, 
-                                               heights = unit(c(0.7, 0.3), "npc"),
-                                               widths = unit(c(0.6, 0.4), "npc"))))
-    
-    # Create main map plot with raw percent of total run
-    main_raw_plot <- ggplot() +
-      geom_sf(data = final_result, aes(fill = percent_of_total_run), color = "white", size = 0.1) +
-      scale_fill_gradientn(
-        colors = brewer.pal(9, "YlOrRd"),
-        name = "Percent of\nTotal Run",
-        na.value = "grey95",
-        labels = function(x) paste0(round(x, 1), "%"),
-        guide = guide_colorbar(
-          barwidth = 1, barheight = 15,
-          frame.colour = "grey40", ticks.colour = "grey40",
-          show.limits = TRUE
-        )
-      ) +
-      coord_sf(datum = NA) +
-      labs(
-        title = paste0(cumulative_labels[[q]], ": Raw Percent of Total Run - ", watershed, " Watershed"),
-        subtitle = paste("Year", year, "- Sensitivity:", sensitivity_threshold, 
-                         "- Min Stream Order:", min_stream_order)
-      ) +
-      theme(
-        plot.title = element_text(size = 14, face = "bold", hjust = 0.5, color = "grey30"),
-        plot.subtitle = element_text(size = 10, hjust = 0.5, color = "grey50"),
-        legend.position = "right",
-        legend.title = element_text(size = 9, face = "bold", color = "grey30"),
-        legend.text = element_text(color = "grey30"),
-        panel.background = element_rect(fill = "white", color = NA),
-        plot.background = element_rect(fill = "white", color = NA),
-        plot.margin = margin(5, 5, 5, 5, "mm")
-      )
-    
-    # Print raw production map and histogram
-    print(main_raw_plot, vp = viewport(layout.pos.row = 1, layout.pos.col = 1))
-    print(bargraph_percent, vp = viewport(layout.pos.row = 1, layout.pos.col = 2))
-    
-    if (!is.null(gg_hist)) {
-      print(gg_hist, vp = viewport(layout.pos.row = 2, layout.pos.col = 1:2))
-    }
-    
-    dev.off()
+    # REMOVED: Create HUC map with raw production values
+    # The entire section that created raw_huc_filepath and raw production maps has been removed
     
     # Create tributary map
     trib_filepath <- file.path(here("Basin Maps/DOY_Cumulative_Total/Tribs"), 
