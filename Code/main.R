@@ -17,26 +17,38 @@ source(here("code/doy_total_analysis.R"))
 source(here("code/cumulative_doy_total_analysis.R"))
 source(here("code/export_doy_total_values.R"))
 
-#' Clean previous DOY output files
+#' Clean previous DOY output files - FIXED for paths with spaces
 #'
 #' @param base_dir Base directory to clean
 #' @return Number of files removed
 clean_doy_outputs <- function(base_dir = here("Basin Maps")) {
   message("Cleaning ALL previous DOY outputs...")
   
+  # Normalize the path to handle spaces properly
+  base_dir <- normalizePath(base_dir, mustWork = FALSE)
+  message(paste("Base directory:", base_dir))
+  
+  # Check if base directory exists
+  if (!dir.exists(base_dir)) {
+    message(paste("Base directory does not exist:", base_dir))
+    return(0)
+  }
+  
   # Define ALL directories that could contain DOY output files
   doy_dirs <- c(
     "DOY_Quartile",
     "DOY_Total", 
     "DOY_Cumulative_Total",
-    "DOY_Cumulative",  # Include old directory in case it exists
-    "Fishing_Window"   # Include fishing window analysis
+    "DOY_Cumulative",
+    "Fishing_Window"
   )
   
   total_removed <- 0
   
   for (dir in doy_dirs) {
-    dir_path <- file.path(base_dir, dir)
+    # Use file.path() and normalizePath() to properly handle spaces
+    dir_path <- normalizePath(file.path(base_dir, dir), mustWork = FALSE)
+    
     if (dir.exists(dir_path)) {
       message(paste("  Cleaning directory:", dir_path))
       
@@ -47,9 +59,38 @@ clean_doy_outputs <- function(base_dir = here("Basin Maps")) {
                               full.names = TRUE)
       
       if (length(png_files) > 0) {
-        message(paste("    Removing", length(png_files), "PNG files"))
-        file.remove(png_files)
-        total_removed <- total_removed + length(png_files)
+        message(paste("    Found", length(png_files), "PNG files"))
+        
+        # Normalize all file paths to handle spaces
+        png_files <- normalizePath(png_files, mustWork = FALSE)
+        
+        # Remove files one by one to better handle errors
+        removed_count <- 0
+        failed_files <- c()
+        
+        for (file in png_files) {
+          tryCatch({
+            if (file.exists(file)) {
+              success <- file.remove(file)
+              if (success) {
+                removed_count <- removed_count + 1
+              } else {
+                failed_files <- c(failed_files, file)
+              }
+            }
+          }, error = function(e) {
+            message(paste("    Error removing file:", basename(file), "-", e$message))
+            failed_files <- c(failed_files, file)
+          })
+        }
+        
+        message(paste("    Successfully removed", removed_count, "PNG files"))
+        total_removed <- total_removed + removed_count
+        
+        if (length(failed_files) > 0) {
+          message(paste("    Failed to remove", length(failed_files), "files"))
+        }
+        
       } else {
         message(paste("    No PNG files found in", dir))
       }
@@ -59,7 +100,7 @@ clean_doy_outputs <- function(base_dir = here("Basin Maps")) {
   }
   
   # Also clean any DOY_Composites directory
-  composites_dir <- file.path(base_dir, "DOY_Composites")
+  composites_dir <- normalizePath(file.path(base_dir, "DOY_Composites"), mustWork = FALSE)
   if (dir.exists(composites_dir)) {
     message(paste("  Cleaning composites directory:", composites_dir))
     png_files <- list.files(composites_dir, 
@@ -67,9 +108,19 @@ clean_doy_outputs <- function(base_dir = here("Basin Maps")) {
                             recursive = TRUE,
                             full.names = TRUE)
     if (length(png_files) > 0) {
-      message(paste("    Removing", length(png_files), "composite PNG files"))
-      file.remove(png_files)
-      total_removed <- total_removed + length(png_files)
+      png_files <- normalizePath(png_files, mustWork = FALSE)
+      removed_count <- 0
+      for (file in png_files) {
+        tryCatch({
+          if (file.exists(file) && file.remove(file)) {
+            removed_count <- removed_count + 1
+          }
+        }, error = function(e) {
+          message(paste("    Error removing composite file:", basename(file)))
+        })
+      }
+      message(paste("    Removed", removed_count, "composite PNG files"))
+      total_removed <- total_removed + removed_count
     }
   }
   
