@@ -314,28 +314,59 @@ setup_watershed_priors <- function(edges, min_stream_order, watershed, natal_dat
   }
 }
 
-#' Divide data into quartiles based on DOY
+#' Divide data into quartiles based on fixed DOY dates (UPDATED)
 #'
 #' @param natal_data Data frame with natal origins data
 #' @return List containing quartile subsets, breaks, and labels
 divide_doy_quartiles <- function(natal_data) {
-  # Get full DOY range
-  full_doy_range <- range(natal_data$DOY, na.rm = TRUE)
+  # Fixed DOY breaks based on calendar dates
+  # June 11 = DOY 162, then 10-day intervals
+  # DOY 162 = June 11
+  # DOY 172 = June 21 (162 + 10)
+  # DOY 182 = July 1 (162 + 20) 
+  # DOY 192 = July 11 (162 + 30)
   
-  # Create breaks at even intervals
-  doy_breaks <- seq(full_doy_range[1], full_doy_range[2], length.out = 5)
+  doy_breaks <- c(162, 172, 182, 192)
   
-  # Create quartile subsets
+  # Create quartile subsets based on fixed dates
   quartile_subsets <- list()
-  for (i in 1:4) {
-    quartile_subsets[[i]] <- natal_data %>% 
-      filter(DOY >= doy_breaks[i] & DOY < doy_breaks[i+1])
-  }
   
-  # Create labels
-  subset_labels <- sapply(1:4, function(i) {
-    sprintf("DOY Q%d: %d-%d", i, ceiling(doy_breaks[i]), floor(doy_breaks[i+1]))
-  })
+  # Q1: Before June 11 (DOY < 162)
+  quartile_subsets[[1]] <- natal_data %>% 
+    filter(DOY < doy_breaks[1])
+  
+  # Q2: June 11-20 (DOY 162-171)  
+  quartile_subsets[[2]] <- natal_data %>% 
+    filter(DOY >= doy_breaks[1] & DOY < doy_breaks[2])
+  
+  # Q3: June 21-30 (DOY 172-181)
+  quartile_subsets[[3]] <- natal_data %>% 
+    filter(DOY >= doy_breaks[2] & DOY < doy_breaks[3])
+  
+  # Q4: July 1+ (DOY 182+)
+  quartile_subsets[[4]] <- natal_data %>% 
+    filter(DOY >= doy_breaks[3])
+  
+  # Create descriptive labels with actual date ranges found in data
+  subset_labels <- character(4)
+  
+  for (i in 1:4) {
+    if (nrow(quartile_subsets[[i]]) > 0) {
+      actual_min <- min(quartile_subsets[[i]]$DOY, na.rm = TRUE)
+      actual_max <- max(quartile_subsets[[i]]$DOY, na.rm = TRUE)
+      
+      # Convert DOY to readable dates for labels
+      min_date <- format(as.Date(actual_min, origin = "2020-01-01"), "%b %d")
+      max_date <- format(as.Date(actual_max, origin = "2020-01-01"), "%b %d")
+      
+      subset_labels[i] <- sprintf("DOY Q%d: %d-%d (%s-%s)", 
+                                  i, actual_min, actual_max, min_date, max_date)
+    } else {
+      # Handle empty quartiles
+      expected_ranges <- c("Before Jun 11", "Jun 11-20", "Jun 21-30", "Jul 1+")
+      subset_labels[i] <- sprintf("DOY Q%d: %s (No data)", i, expected_ranges[i])
+    }
+  }
   
   return(list(
     subsets = quartile_subsets,

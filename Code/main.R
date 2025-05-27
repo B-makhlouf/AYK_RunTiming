@@ -398,7 +398,7 @@ run_complete_doy_analysis <- function(years, watersheds,
 
 # Run both standard and total-normalized analyses together (both use raw production)
 run_complete_doy_analysis(
-  years = c("2017", "2019", "2020", "2021"),
+  years = c("2017", "2018","2019", "2020", "2021"),
   watersheds = c("Kusko"),
   run_cumulative = TRUE,
 export_data = TRUE
