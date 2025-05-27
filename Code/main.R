@@ -389,17 +389,17 @@ run_complete_doy_analysis <- function(years, watersheds,
 # )
 
 # Run total-normalized DOY analysis for Kuskokwim watershed (raw production)
-run_full_doy_total_analysis(
-  years = c("2017", "2019", "2020", "2021"),
-  watersheds = c("Kusko"),
-  run_cumulative = TRUE,
-  export_data = TRUE
-)
-
-# Run both standard and total-normalized analyses together (both use raw production)
-# run_complete_doy_analysis(
+# run_full_doy_total_analysis(
 #   years = c("2017", "2019", "2020", "2021"),
 #   watersheds = c("Kusko"),
 #   run_cumulative = TRUE,
-  # export_data = TRUE
+#   export_data = TRUE
 # )
+
+# Run both standard and total-normalized analyses together (both use raw production)
+run_complete_doy_analysis(
+  years = c("2017", "2019", "2020", "2021"),
+  watersheds = c("Kusko"),
+  run_cumulative = TRUE,
+export_data = TRUE
+)
