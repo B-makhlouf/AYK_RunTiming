@@ -6,16 +6,17 @@ library(dplyr)
 library(here)
 library(readr)
 library(tidyr)
+library(ggplot2)
+library(RColorBrewer)
 
-# Source the required utility files (make sure these use the modified spatial_utils.R)
-source(here("code/utils/spatial_utils.R"))  # Modified version with management units
+# Source the required utility files
+source(here("code/utils/spatial_utils.R"))
 source(here("code/assignment.R"))
-source(here("code/doy_analysis.R"))
 
 #' Export DOY analysis results with management unit breakdown
 #'
 #' @param years Vector of years to process
-#' @param watersheds Vector of watersheds to process (focus on "Kusko" for management units)
+#' @param watersheds Vector of watersheds to process
 #' @param output_dir Directory to save output CSV files
 #' @return List with paths to created CSV files
 export_management_analysis_results <- function(years, watersheds = "Kusko", 
@@ -95,7 +96,7 @@ export_management_analysis_results <- function(years, watersheds = "Kusko",
         next
       }
       
-      # Load spatial data (using modified function that loads management shapefile)
+      # Load spatial data
       spatial_data <- load_spatial_data(watershed, 8, min_stream_order)
       edges <- spatial_data$edges
       basin <- spatial_data$basin
@@ -349,7 +350,6 @@ create_management_unit_plot <- function(mgmt_data_file, output_dir = here("Analy
   return(plot_path)
 }
 
-# Example usage function
 #' Run the complete management unit analysis
 #'
 #' @param years Vector of years to analyze
@@ -375,7 +375,3 @@ run_management_analysis <- function(years = c("2017", "2019", "2020", "2021"),
   message("Management unit analysis complete!")
   return(results)
 }
-
-# Uncomment to run the analysis:
- run_management_analysis(years = c("2017", "2019", "2020", "2021"))
- 
