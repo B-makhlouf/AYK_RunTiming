@@ -355,7 +355,7 @@ create_management_unit_plot <- function(mgmt_data_file, output_dir = here("Analy
 #' @param years Vector of years to analyze
 #' @param create_plot Whether to create visualization
 #' @return List of output file paths
-run_management_analysis <- function(years = c("2017", "2019", "2020", "2021"), 
+run_management_analysis <- function(years = c("2017","2018", "2019", "2020", "2021"), 
                                     create_plot = TRUE) {
   
   message("Starting management unit analysis...")

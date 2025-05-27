@@ -182,7 +182,7 @@ ready <- test_management_setup()
 
 if (ready) {
   cat("\nStep 2: Running management unit analysis...\n")
-  years_to_analyze <- c("2017", "2019", "2020", "2021")
+  years_to_analyze <- c("2017", "2018", "2019", "2020", "2021")
   
   result_file <- export_management_unit_results(years_to_analyze)
   
