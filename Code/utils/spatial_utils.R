@@ -81,6 +81,47 @@ process_huc_data <- function(edges, basin, Huc, basin_assign_rescale, HUC = 8) {
 }
 
 ################################################################################
+# MANAGEMENT RIVER DATA PROCESSING - PRODUCTION PROPORTION
+################################################################################
+
+#' Process management river data showing production proportion within each management unit
+#' Similar to HUC processing but groups by mgmt_river attribute
+process_mgmt_river_data <- function(edges, basin_assign_rescale) {
+  
+  # Check if management data exists
+  if (!"mgmt_river" %in% colnames(edges)) {
+    warning("mgmt_river column not found in edges data. Management analysis will be skipped.")
+    return(NULL)
+  }
+  
+  # Add assignment values to edges
+  edges$basin_assign_rescale <- basin_assign_rescale
+  
+  # Filter to only edges that have management unit assignments (not NA or empty)
+  managed_edges <- edges[!is.na(edges$mgmt_river) & edges$mgmt_river != "", ]
+  
+  if (nrow(managed_edges) == 0) {
+    message("No edges with management unit assignments found")
+    return(NULL)
+  }
+  
+  message(paste("Found", nrow(managed_edges), "managed edges out of", nrow(edges), "total edges"))
+  
+  # CORE CALCULATION: Summarize production by management river (PROPORTION ONLY)
+  summary_mgmt <- managed_edges %>%
+    st_drop_geometry() %>%
+    group_by(mgmt_river) %>%
+    summarise(
+      total_production = sum(basin_assign_rescale, na.rm = TRUE),
+      edge_count = n(),
+      .groups = "drop"
+    ) %>%
+    mutate(production_proportion = total_production / sum(total_production, na.rm = TRUE))
+  
+  return(summary_mgmt)
+}
+
+################################################################################
 # MANAGEMENT UNIT DATA PROCESSING
 ################################################################################
 
@@ -135,7 +176,7 @@ process_management_data <- function(edges, basin_assign_rescale, grand_total_pro
 #' Load spatial data for watershed analysis
 load_spatial_data <- function(watershed, HUC = 8, min_stream_order = 3) {
   if (watershed == "Kusko") {
-    edges <- st_read("/Users/benjaminmakhlouf/Spatial Data/KuskoUSGS_HUC.shp", quiet = TRUE)
+    edges <- st_read("/Users/benjaminmakhlouf/Spatial Data/KuskoUSGS_HUC_joined.shp", quiet = TRUE)
     basin <- st_read("/Users/benjaminmakhlouf/Desktop/Research/isoscapes_new/Kusko/Kusko_basin.shp", quiet = TRUE)
   } else if (watershed == "Yukon") {
     edges <- st_read("/Users/benjaminmakhlouf/Spatial Data/USGS Added/YukonUSGS.shp", quiet = TRUE)

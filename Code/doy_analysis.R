@@ -104,6 +104,12 @@ DOY_Quartile_Analysis <- function(year, watershed, sensitivity_threshold, min_er
     final_result <- process_huc_data(edges, basin, Huc, basin_assign_rescale, HUC)
     
     ################################################################################
+    # PROCESS MANAGEMENT RIVER DATA - SHOWS PROPORTION WITHIN THIS QUARTILE
+    ################################################################################
+    
+    mgmt_result <- process_mgmt_river_data(edges, basin_assign_rescale)
+    
+    ################################################################################
     # CREATE VISUALIZATION PLOTS
     ################################################################################
     
@@ -120,6 +126,22 @@ DOY_Quartile_Analysis <- function(year, watershed, sensitivity_threshold, min_er
     # Create a simple HUC map showing production proportion
     create_simple_huc_map(final_result, gg_hist, year, watershed, sensitivity_threshold, 
                           min_stream_order, HUC, subset_labels[q], huc_filepath)
+    
+    ################################################################################
+    # CREATE MANAGEMENT RIVER MAP - SHOWS PRODUCTION PROPORTION
+    ################################################################################
+    
+    if (!is.null(mgmt_result)) {
+      mgmt_filepath <- file.path(here("Basin Maps/DOY_Quartile/Management"), 
+                                 paste0(subset_id, "_Management.png"))
+      
+      # Create output directory
+      dir.create(here("Basin Maps/DOY_Quartile/Management"), showWarnings = FALSE, recursive = TRUE)
+      
+      # Create management river map
+      create_simple_mgmt_map(mgmt_result, edges, basin, gg_hist, year, watershed, 
+                             sensitivity_threshold, min_stream_order, subset_labels[q], mgmt_filepath)
+    }
     
     ################################################################################
     # CREATE TRIBUTARY MAP
@@ -154,7 +176,8 @@ DOY_Quartile_Analysis <- function(year, watershed, sensitivity_threshold, min_er
         label = subset_labels[q],
         basin_assign_rescale = basin_assign_rescale,
         basin_assign_norm = basin_assign_norm,
-        huc_result = final_result
+        huc_result = final_result,
+        mgmt_result = mgmt_result  # Add management result
       )
     }
     
@@ -261,4 +284,110 @@ create_simple_huc_map <- function(final_result, gg_hist, year, watershed,
   dev.off()
   
   message(paste("Created HUC map:", basename(output_filepath)))
+}
+
+################################################################################
+# SIMPLIFIED MANAGEMENT RIVER MAP FUNCTION
+################################################################################
+
+#' Create a simple management river map showing production proportion
+create_simple_mgmt_map <- function(mgmt_result, edges, basin, gg_hist, year, watershed, 
+                                   sensitivity_threshold, min_stream_order, subset_label, 
+                                   output_filepath) {
+  
+  png(file = output_filepath, width = 12, height = 10, units = "in", res = 300, bg = "white")
+  
+  # Set up plotting layout  
+  grid.newpage()
+  pushViewport(viewport(layout = grid.layout(2, 2, 
+                                             heights = unit(c(0.7, 0.3), "npc"),
+                                             widths = unit(c(0.6, 0.4), "npc"))))
+  
+  # Create color scale based on production proportion (like HUC maps)
+  # Add production proportion to edges based on their management river
+  edges$production_proportion <- NA
+  for (i in 1:nrow(mgmt_result)) {
+    mgmt_name <- mgmt_result$mgmt_river[i]
+    prod_prop <- mgmt_result$production_proportion[i]
+    edges$production_proportion[edges$mgmt_river == mgmt_name] <- prod_prop
+  }
+  
+  # Filter to only managed edges for the map
+  managed_edges <- edges[!is.na(edges$mgmt_river) & edges$mgmt_river != "", ]
+  
+  # Convert to sf objects for ggplot
+  managed_edges_sf <- st_as_sf(managed_edges)
+  basin_sf <- st_as_sf(basin)
+  
+  # Main map plot showing management rivers colored by production proportion
+  main_plot <- ggplot() +
+    geom_sf(data = basin_sf, fill = "gray90", color = "gray70", size = 0.5) +
+    geom_sf(data = managed_edges_sf, aes(color = production_proportion), size = 1.2) +
+    scale_color_gradientn(
+      colors = brewer.pal(9, "YlOrRd"),
+      name = "Production\nProportion",
+      na.value = "grey60",
+      labels = scales::percent_format(accuracy = 1),
+      guide = guide_colorbar(
+        barwidth = 1, barheight = 15,
+        frame.colour = "grey40", ticks.colour = "grey40",
+        show.limits = TRUE
+      )
+    ) +
+    coord_sf(datum = NA) +
+    labs(
+      title = paste0(subset_label, ": Management Rivers - ", watershed, " Watershed"),
+      subtitle = paste("Year", year, "- Sensitivity:", sensitivity_threshold, 
+                       "- Min Stream Order:", min_stream_order)
+    ) +
+    theme(
+      plot.title = element_text(size = 14, face = "bold", hjust = 0.5, color = "grey30"),
+      plot.subtitle = element_text(size = 10, hjust = 0.5, color = "grey50"),
+      legend.position = "right",
+      legend.title = element_text(size = 9, face = "bold", color = "grey30"),
+      legend.text = element_text(color = "grey30"),
+      panel.background = element_rect(fill = "white", color = NA),
+      plot.background = element_rect(fill = "white", color = NA),
+      plot.margin = margin(5, 5, 5, 5, "mm")
+    )
+  
+  # Create bar chart showing management rivers by production proportion
+  mgmt_result_sorted <- mgmt_result %>%
+    arrange(desc(production_proportion))
+  
+  bar_plot <- ggplot(mgmt_result_sorted, 
+                     aes(x = reorder(mgmt_river, production_proportion), y = production_proportion)) +
+    geom_col(aes(fill = production_proportion), alpha = 0.9) +
+    scale_fill_gradientn(colors = brewer.pal(9, "YlOrRd"), guide = "none") +
+    coord_flip() +
+    scale_y_continuous(labels = scales::percent_format(accuracy = 1), expand = c(0, 0)) +
+    labs(title = "Production by Management River",
+         x = "", y = "Production Proportion") +
+    theme_minimal() +
+    theme(
+      plot.title = element_text(hjust = 0.5, size = 10),
+      axis.text.y = element_text(size = 8),
+      panel.grid.major.y = element_blank(),
+      plot.margin = margin(5, 10, 5, 5, "mm"),
+      plot.background = element_rect(fill = "white", color = NA),
+      panel.background = element_rect(fill = "white", color = NA)
+    )
+  
+  # Plot components
+  print(main_plot, vp = viewport(layout.pos.row = 1, layout.pos.col = 1))
+  print(bar_plot, vp = viewport(layout.pos.row = 1, layout.pos.col = 2))
+  
+  # Add histogram if provided
+  if (!is.null(gg_hist)) {
+    gg_hist_clean <- gg_hist + 
+      theme(
+        plot.background = element_rect(fill = "white", color = NA),
+        panel.background = element_rect(fill = "white", color = NA)
+      )
+    print(gg_hist_clean, vp = viewport(layout.pos.row = 2, layout.pos.col = 1:2))
+  }
+  
+  dev.off()
+  
+  message(paste("Created Management map:", basename(output_filepath)))
 }
