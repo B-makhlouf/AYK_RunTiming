@@ -1,214 +1,153 @@
-# doy_analysis.R - FIXED VERSION
-# Functions for DOY (Day of Year) quartile analysis
+################################################################################
+# DOY_ANALYSIS.R - DAY OF YEAR QUARTILE ANALYSIS
+################################################################################
+# PURPOSE: Analyzes salmon run timing by dividing data into 4 DOY quartiles
+# OUTPUT: Shows proportion of production within each timing quartile
+# KEY: Each quartile map shows what % of that quartile's production comes from each HUC
+################################################################################
 
 library(sf)
 library(dplyr)
 library(here)
 library(ggplot2)
 library(RColorBrewer)
-library(scales)
-library(grid)
-library(gridExtra)
 
-# Source the required utility files
+# Source required utilities
 source(here("code/utils/spatial_utils.R"))
 source(here("code/utils/visualization.R"))
 source(here("code/assignment.R"))
 
-#' Perform DOY Quartile Analysis - FIXED VERSION
-#'
-#' @param year Character or numeric representing the year
-#' @param watershed Character: "Kusko" or "Yukon"
-#' @param sensitivity_threshold Numeric threshold for assignment filtering
-#' @param min_error Minimum error value to use
-#' @param min_stream_order Minimum stream order to include
-#' @param HUC HUC level (e.g., 8, 10)
-#' @param return_values Whether to return the calculated values
-#' @return If return_values is TRUE, a list with results; otherwise NULL
+################################################################################
+# MAIN DOY QUARTILE ANALYSIS FUNCTION
+################################################################################
+
+#' Perform DOY Quartile Analysis
+#' Creates maps showing proportion of production within each timing quartile
 DOY_Quartile_Analysis <- function(year, watershed, sensitivity_threshold, min_error, 
                                   min_stream_order = 3, HUC = 8, 
                                   return_values = FALSE) {
   
   message(paste("=== Starting DOY Quartile Analysis for", year, watershed, "==="))
   
-  # Generate identifier for output files
-  identifier <- paste(year, watershed, sep = "_")
+  ################################################################################
+  # SETUP: LOAD DATA AND PARAMETERS
+  ################################################################################
   
-  # Load spatial data
-  message("Loading spatial data...")
-  tryCatch({
-    spatial_data <- load_spatial_data(watershed, HUC, min_stream_order)
-    edges <- spatial_data$edges
-    basin <- spatial_data$basin
-    Huc <- spatial_data$Huc
-    message(paste("  - Loaded", nrow(edges), "edges,", nrow(basin), "basin features,", nrow(Huc), "HUC features"))
-  }, error = function(e) {
-    stop("Error loading spatial data: ", e$message)
-  })
+  # Load spatial and natal data
+  spatial_data <- load_spatial_data(watershed, HUC, min_stream_order)
+  edges <- spatial_data$edges
+  basin <- spatial_data$basin
+  Huc <- spatial_data$Huc
   
-  # Load natal origins data
-  message("Loading natal origins data...")
-  tryCatch({
-    natal_data <- load_natal_data(year, watershed)
-    message(paste("  - Loaded", nrow(natal_data), "natal data records"))
-  }, error = function(e) {
-    stop("Error loading natal data: ", e$message)
-  })
+  natal_data <- load_natal_data(year, watershed)
+  message(paste("Loaded", nrow(natal_data), "natal data records"))
   
   # Divide data into DOY quartiles
-  message("Dividing data into DOY quartiles...")
-  tryCatch({
-    quartile_data <- divide_doy_quartiles(natal_data)
-    quartile_subsets <- quartile_data$subsets
-    subset_labels <- quartile_data$labels
-    
-    for (q in 1:length(quartile_subsets)) {
-      message(paste("  - Quartile", q, ":", nrow(quartile_subsets[[q]]), "records"))
-    }
-  }, error = function(e) {
-    stop("Error dividing into quartiles: ", e$message)
-  })
+  quartile_data <- divide_doy_quartiles(natal_data)
+  quartile_subsets <- quartile_data$subsets
+  subset_labels <- quartile_data$labels
   
-  # Extract isoscape prediction and error values
-  message("Setting up predictions and error calculations...")
-  tryCatch({
-    pid_iso <- edges$iso_pred
-    pid_isose <- edges$isose_pred
-    
-    # Calculate error values
-    error <- calculate_error(pid_isose, min_error)
-    
-    # Set up watershed-specific priors
-    priors <- setup_watershed_priors(edges, min_stream_order, watershed, natal_data)
-    
-    message(paste("  - Setup complete with", length(pid_iso), "prediction points"))
-  }, error = function(e) {
-    stop("Error setting up predictions: ", e$message)
-  })
+  # Setup assignment parameters
+  pid_iso <- edges$iso_pred
+  pid_isose <- edges$isose_pred
+  error <- calculate_error(pid_isose, min_error)
+  priors <- setup_watershed_priors(edges, min_stream_order, watershed, natal_data)
   
-  # Create output directories
-  message("Creating output directories...")
+  ################################################################################
+  # CREATE OUTPUT DIRECTORIES
+  ################################################################################
+  
   dir.create(here("Basin Maps/DOY_Quartile/HUC"), showWarnings = FALSE, recursive = TRUE)
   dir.create(here("Basin Maps/DOY_Quartile/Tribs"), showWarnings = FALSE, recursive = TRUE)
   
-  # Return values storage
+  # Storage for return values
   if (return_values) {
     all_results <- list()
   }
   
-  # Process each quartile subset
+  ################################################################################
+  # PROCESS EACH QUARTILE
+  ################################################################################
+  
   for (q in 1:length(quartile_subsets)) {
     current_subset <- quartile_subsets[[q]]
     
-    # Skip empty subsets
+    # Skip empty quartiles
     if (nrow(current_subset) == 0) {
-      message(paste("  Skipping", subset_labels[q], "- no data"))
+      message(paste("Skipping", subset_labels[q], "- no data"))
       next
     }
     
-    message(paste("Processing", subset_labels[q], "with", nrow(current_subset), "data points..."))
+    message(paste("Processing", subset_labels[q], "with", nrow(current_subset), "data points"))
     
-    # Create unique ID for this subset
+    ################################################################################
+    # PERFORM ASSIGNMENT FOR THIS QUARTILE
+    ################################################################################
+    
+    # Create unique ID for output files
     subset_id <- paste0(watershed, "_", year, "_DOY_Q", q)
     
-    # Perform assignment
-    tryCatch({
-      assignment_matrix <- perform_assignment(
-        current_subset, edges, watershed, priors, pid_iso, error, sensitivity_threshold
-      )
-      
-      # Process assignments to get basin-scale values
-      basin_results <- process_assignments(assignment_matrix)
-      basin_assign_rescale <- basin_results$rescale
-      basin_assign_norm <- basin_results$norm
-      
-      message(paste("  - Assignment completed, max value:", round(max(basin_assign_norm, na.rm = TRUE), 4)))
-      
-    }, error = function(e) {
-      message(paste("  Error in assignment for quartile", q, ":", e$message))
-      next
-    })
+    # Perform Bayesian assignment
+    assignment_matrix <- perform_assignment(
+      current_subset, edges, watershed, priors, pid_iso, error, sensitivity_threshold
+    )
     
-    # Create improved histogram
-    tryCatch({
-      gg_hist <- create_doy_histogram(natal_data, current_subset, subset_labels[q])
-    }, error = function(e) {
-      message(paste("  Warning: Could not create histogram:", e$message))
-      gg_hist <- NULL
-    })
+    # Process assignments to get basin-scale values
+    basin_results <- process_assignments(assignment_matrix)
+    basin_assign_rescale <- basin_results$rescale
+    basin_assign_norm <- basin_results$norm
     
-    # Process HUC data
-    tryCatch({
-      final_result <- process_huc_data(edges, basin, Huc, basin_assign_rescale, HUC)
-      message(paste("  - HUC processing completed for", nrow(final_result), "HUCs"))
-    }, error = function(e) {
-      message(paste("  Error processing HUC data for quartile", q, ":", e$message))
-      next
-    })
+    ################################################################################
+    # PROCESS HUC DATA - SHOWS PROPORTION WITHIN THIS QUARTILE
+    ################################################################################
     
-    # Create HUC map
+    final_result <- process_huc_data(edges, basin, Huc, basin_assign_rescale, HUC)
+    
+    ################################################################################
+    # CREATE VISUALIZATION PLOTS
+    ################################################################################
+    
+    # Create DOY histogram showing this quartile highlighted
+    gg_hist <- create_doy_histogram(natal_data, current_subset, subset_labels[q])
+    
+    ################################################################################
+    # CREATE HUC MAP - SHOWS PRODUCTION PROPORTION
+    ################################################################################
+    
     huc_filepath <- file.path(here("Basin Maps/DOY_Quartile/HUC"), 
                               paste0(subset_id, "_HUC", HUC, ".png"))
     
-    message(paste("  - Creating HUC map:", basename(huc_filepath)))
-    tryCatch({
-      # Create HUC map using the visualization function
-      create_doy_huc_map(
-        final_result = final_result,
-        basin_assign_norm = basin_assign_norm,
-        gg_hist = gg_hist,
-        year = year,
-        watershed = watershed,
-        sensitivity_threshold = sensitivity_threshold,
-        min_stream_order = min_stream_order,
-        HUC = HUC,
-        subset_label = subset_labels[q],
-        output_filepath = huc_filepath
-      )
-      
-      if (file.exists(huc_filepath)) {
-        message(paste("    ✓ HUC map created successfully"))
-      } else {
-        message(paste("    ✗ HUC map file not found after creation"))
-      }
-      
-    }, error = function(e) {
-      message(paste("  Error creating HUC map for quartile", q, ":", e$message))
-    })
+    # Create a simple HUC map showing production proportion
+    create_simple_huc_map(final_result, gg_hist, year, watershed, sensitivity_threshold, 
+                          min_stream_order, HUC, subset_labels[q], huc_filepath)
     
-    # Create tributary map
+    ################################################################################
+    # CREATE TRIBUTARY MAP
+    ################################################################################
+    
     trib_filepath <- file.path(here("Basin Maps/DOY_Quartile/Tribs"), 
                                paste0(subset_id, ".png"))
     
-    message(paste("  - Creating tributary map:", basename(trib_filepath)))
-    tryCatch({
-      create_doy_tributary_map(
-        basin = basin,
-        edges = edges,
-        basin_assign_norm = basin_assign_norm,
-        StreamOrderPrior = priors$StreamOrderPrior,
-        pid_prior = priors$pid_prior,
-        gg_hist = gg_hist,
-        year = year,
-        watershed = watershed,
-        sensitivity_threshold = sensitivity_threshold,
-        min_stream_order = min_stream_order,
-        min_error = min_error,
-        subset_label = subset_labels[q],
-        output_filepath = trib_filepath
-      )
-      
-      if (file.exists(trib_filepath)) {
-        message(paste("    ✓ Tributary map created successfully"))
-      } else {
-        message(paste("    ✗ Tributary map file not found after creation"))
-      }
-      
-    }, error = function(e) {
-      message(paste("  Error creating tributary map for quartile", q, ":", e$message))
-    })
+    create_doy_tributary_map(
+      basin = basin,
+      edges = edges,
+      basin_assign_norm = basin_assign_norm,
+      StreamOrderPrior = priors$StreamOrderPrior,
+      pid_prior = priors$pid_prior,
+      gg_hist = gg_hist,
+      year = year,
+      watershed = watershed,
+      sensitivity_threshold = sensitivity_threshold,
+      min_stream_order = min_stream_order,
+      min_error = min_error,
+      subset_label = subset_labels[q],
+      output_filepath = trib_filepath
+    )
     
-    # Store results if needed
+    ################################################################################
+    # STORE RESULTS IF REQUESTED
+    ################################################################################
+    
     if (return_values) {
       all_results[[q]] <- list(
         subset = current_subset,
@@ -219,8 +158,12 @@ DOY_Quartile_Analysis <- function(year, watershed, sensitivity_threshold, min_er
       )
     }
     
-    message(paste("  ✓ Completed processing quartile", q))
+    message(paste("Completed processing quartile", q))
   }
+  
+  ################################################################################
+  # RETURN RESULTS
+  ################################################################################
   
   message(paste("=== DOY Quartile Analysis completed for", year, watershed, "==="))
   
@@ -231,58 +174,91 @@ DOY_Quartile_Analysis <- function(year, watershed, sensitivity_threshold, min_er
   }
 }
 
-#' Test function to debug DOY analysis issues
-#'
-#' @param year Character or numeric representing the year
-#' @param watershed Character: "Kusko" or "Yukon"
-test_doy_quartile_analysis <- function(year = "2019", watershed = "Kusko") {
-  message("=== Testing DOY Quartile Analysis ===")
-  
-  # Set parameters
-  if (watershed == "Kusko") {
-    sensitivity_threshold <- 0.7
-    min_error <- 0.0006
-    min_stream_order <- 3
-  } else {
-    sensitivity_threshold <- 0.7
-    min_error <- 0.003
-    min_stream_order <- 5
-  }
-  
-  # Test the analysis
-  result <- DOY_Quartile_Analysis(
-    year = year,
-    watershed = watershed,
-    sensitivity_threshold = sensitivity_threshold,
-    min_error = min_error,
-    min_stream_order = min_stream_order,
-    HUC = 8,
-    return_values = FALSE
-  )
-  
-  # Check if files were created
-  output_dir_huc <- here("Basin Maps/DOY_Quartile/HUC")
-  output_dir_tribs <- here("Basin Maps/DOY_Quartile/Tribs")
-  
-  huc_files <- list.files(output_dir_huc, pattern = paste0(watershed, "_", year, "_DOY"), full.names = TRUE)
-  trib_files <- list.files(output_dir_tribs, pattern = paste0(watershed, "_", year, "_DOY"), full.names = TRUE)
-  
-  message(paste("Files created:"))
-  message(paste("  HUC maps:", length(huc_files)))
-  message(paste("  Tributary maps:", length(trib_files)))
-  
-  if (length(huc_files) > 0) {
-    message("  HUC files:")
-    for (f in huc_files) message(paste("   ", basename(f)))
-  }
-  
-  if (length(trib_files) > 0) {
-    message("  Tributary files:")
-    for (f in trib_files) message(paste("   ", basename(f)))
-  }
-  
-  return(invisible(NULL))
-}
+################################################################################
+# SIMPLIFIED HUC MAP CREATION FUNCTION
+################################################################################
 
-# Example usage to test:
-# test_doy_quartile_analysis("2019", "Kusko")
+#' Create a simple HUC map showing production proportion
+create_simple_huc_map <- function(final_result, gg_hist, year, watershed, 
+                                  sensitivity_threshold, min_stream_order, HUC, 
+                                  subset_label, output_filepath) {
+  
+  png(file = output_filepath, width = 12, height = 10, units = "in", res = 300, bg = "white")
+  
+  # Set up plotting layout
+  grid.newpage()
+  pushViewport(viewport(layout = grid.layout(2, 2, 
+                                             heights = unit(c(0.7, 0.3), "npc"),
+                                             widths = unit(c(0.6, 0.4), "npc"))))
+  
+  # Main map plot showing production proportion
+  main_plot <- ggplot() +
+    geom_sf(data = final_result, aes(fill = production_proportion), color = "white", size = 0.1) +
+    scale_fill_gradientn(
+      colors = brewer.pal(9, "YlOrRd"),
+      name = "Production\nProportion",
+      na.value = "grey95",
+      labels = scales::percent_format(accuracy = 1),
+      guide = guide_colorbar(
+        barwidth = 1, barheight = 15,
+        frame.colour = "grey40", ticks.colour = "grey40",
+        show.limits = TRUE
+      )
+    ) +
+    coord_sf(datum = NA) +
+    labs(
+      title = paste0(subset_label, ": Production Proportion - ", watershed, " Watershed"),
+      subtitle = paste("Year", year, "- Sensitivity:", sensitivity_threshold, 
+                       "- Min Stream Order:", min_stream_order)
+    ) +
+    theme(
+      plot.title = element_text(size = 14, face = "bold", hjust = 0.5, color = "grey30"),
+      plot.subtitle = element_text(size = 10, hjust = 0.5, color = "grey50"),
+      legend.position = "right",
+      legend.title = element_text(size = 9, face = "bold", color = "grey30"),
+      legend.text = element_text(color = "grey30"),
+      panel.background = element_rect(fill = "white", color = NA),
+      plot.background = element_rect(fill = "white", color = NA),
+      plot.margin = margin(5, 5, 5, 5, "mm")
+    )
+  
+  # Create bar chart showing HUCs by production proportion
+  final_result_sorted <- final_result %>%
+    arrange(desc(production_proportion))
+  
+  bar_plot <- ggplot(final_result_sorted, 
+                     aes(x = reorder(Name, production_proportion), y = production_proportion)) +
+    geom_col(aes(fill = production_proportion), alpha = 0.9) +
+    scale_fill_gradientn(colors = brewer.pal(9, "YlOrRd"), guide = "none") +
+    coord_flip() +
+    scale_y_continuous(labels = scales::percent_format(accuracy = 1), expand = c(0, 0)) +
+    labs(title = paste("Production by", "HUC", HUC),
+         x = "", y = "Production Proportion") +
+    theme_minimal() +
+    theme(
+      plot.title = element_text(hjust = 0.5, size = 10),
+      axis.text.y = element_text(size = 7),
+      panel.grid.major.y = element_blank(),
+      plot.margin = margin(5, 10, 5, 5, "mm"),
+      plot.background = element_rect(fill = "white", color = NA),
+      panel.background = element_rect(fill = "white", color = NA)
+    )
+  
+  # Plot components
+  print(main_plot, vp = viewport(layout.pos.row = 1, layout.pos.col = 1))
+  print(bar_plot, vp = viewport(layout.pos.row = 1, layout.pos.col = 2))
+  
+  # Add histogram if provided
+  if (!is.null(gg_hist)) {
+    gg_hist_clean <- gg_hist + 
+      theme(
+        plot.background = element_rect(fill = "white", color = NA),
+        panel.background = element_rect(fill = "white", color = NA)
+      )
+    print(gg_hist_clean, vp = viewport(layout.pos.row = 2, layout.pos.col = 1:2))
+  }
+  
+  dev.off()
+  
+  message(paste("Created HUC map:", basename(output_filepath)))
+}
