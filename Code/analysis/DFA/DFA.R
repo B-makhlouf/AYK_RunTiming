@@ -1,423 +1,244 @@
-# Main DFA Analysis Script for Management Units
-# Simplified - reads existing management unit data instead of recalculating
+# ============================================================================
+# Dynamic Factor Analysis (DFA) for Management Unit Salmon Run Timing
+# Complete script for both Total Run and Within-Quartile Proportion analysis
+# ============================================================================
 
-# Load required libraries
+# Load required libraries --------------------------------------------------
 library(dplyr)
 library(tidyr)
-library(here)
-library(sf)
 library(ggplot2)
 library(RColorBrewer)
+library(stringr)
+library(scales)
+library(MARSS)
+library(gridExtra)
+library(grid)  # Added for textGrob function
+library(sf)
+library(viridis)
 
+# ============================================================================
+# PART 1: DATA LOADING AND PREPARATION
+# ============================================================================
 
-###################### DFA of proportion * CPUE ######################
-#######################################################################
-############# This bit includes the influence of CPUE, way more fish are caught in the middle, so way more fish from there. 
+# Load the long format data
+both_ts_long <- read.csv("/Users/benjaminmakhlouf/Research_repos/AYK_RunTiming/Analysis_Results/Management_River_Analysis/management_river_analysis_tidy.csv")
 
-# Read in the management tributary summary 
-mngmt_rivs <- read.csv("/Users/benjaminmakhlouf/Research_repos/AYK_RunTiming/Analysis_Results/Management_Units/management_unit_summary.csv")
-
-# Create a wide format timeseries (each row = management river, columns = year-quartile combinations)
-timeseries_wide <- mngmt_rivs %>%
-  # Create a time period identifier
-  mutate(time_period = paste0(year, "_", quartile)) %>%
-  # Select key columns
-  select(mgmt_river, time_period, percent_of_total_run) %>%
-  # Pivot to wide format
-  pivot_wider(
-    names_from = time_period, 
-    values_from = percent_of_total_run,
-    values_fill = 0  # Fill missing values with 0
+# Clean up time variables
+both_ts_long <- both_ts_long %>%
+  mutate(
+    Quartile_Clean = case_when(
+      grepl("Q1|1", quartile, ignore.case = TRUE) ~ "Q1",
+      grepl("Q2|2", quartile, ignore.case = TRUE) ~ "Q2", 
+      grepl("Q3|3", quartile, ignore.case = TRUE) ~ "Q3",
+      grepl("Q4|4", quartile, ignore.case = TRUE) ~ "Q4",
+      TRUE ~ as.character(quartile)
+    ),
+    Quartile_Num = case_when(
+      Quartile_Clean == "Q1" ~ 1,
+      Quartile_Clean == "Q2" ~ 2,
+      Quartile_Clean == "Q3" ~ 3,
+      Quartile_Clean == "Q4" ~ 4,
+      TRUE ~ as.numeric(str_extract(quartile, "\\d"))
+    ),
+    Time_Continuous = year + (Quartile_Num - 1) * 0.25,
+    Time_Period = paste0(year, "_", Quartile_Clean)
   )
 
-# Display the wide format timeseries
-cat("\n=== Wide Format Timeseries ===\n")
-print(timeseries_wide)
+# Create color palette for rivers
+mgmt_rivers <- unique(both_ts_long$mgmt_river)
+n_rivers <- length(mgmt_rivers)
 
-# Create a long format for easier plotting
-timeseries_long <- mngmt_rivs %>%
-  mutate(
-    # Create decimal year for plotting (Q1=0.125, Q2=0.375, Q3=0.625, Q4=0.875)
-    quartile_decimal = case_when(
-      quartile == "Q1" ~ 0.125,
-      quartile == "Q2" ~ 0.375,
-      quartile == "Q3" ~ 0.625,
-      quartile == "Q4" ~ 0.875,
-      TRUE ~ 0.5
-    ),
-    year_decimal = year + quartile_decimal
-  ) %>%
-  arrange(mgmt_river, year_decimal)
+if(n_rivers <= 11) {
+  river_colors <- RColorBrewer::brewer.pal(max(3, n_rivers), "Spectral")
+} else {
+  river_colors <- colorRampPalette(RColorBrewer::brewer.pal(11, "Spectral"))(n_rivers)
+}
+names(river_colors) <- mgmt_rivers
 
-# Create a simple line plot showing all management units over time
-p1 <- ggplot(timeseries_long, aes(x = year_decimal, y = percent_of_total_run, color = mgmt_river)) +
-  geom_line(size = 1.2) +
-  geom_point(size = 2) +
-  scale_x_continuous(
-    breaks = seq(min(timeseries_long$year), max(timeseries_long$year), by = 1),
-    labels = scales::number_format(accuracy = 1)
-  ) +
-  scale_y_continuous(labels = function(x) paste0(round(x, 1), "%")) +
+# ============================================================================
+# PART 2: VISUALIZATION OF RAW DATA
+# ============================================================================
+
+# Plot 1: Total Run Proportion over time
+total_run_data <- both_ts_long %>%
+  filter(!is.na(total_run_prop), total_run_prop > 0)
+
+p1 <- ggplot(total_run_data, aes(x = Time_Continuous, y = total_run_prop, color = mgmt_river)) +
+  geom_line(linewidth = 1.2, alpha = 0.8) +
+  geom_point(size = 2.5, alpha = 0.9) +
+  scale_color_manual(values = river_colors) +
+  scale_x_continuous(breaks = unique(total_run_data$year)) +
+  scale_y_continuous(labels = scales::percent_format(scale = 1), limits = c(0, NA)) +
   labs(
-    title = "Management Unit Production Timeseries by Quartile",
-    subtitle = "Percent of total watershed run by management river and timing quartile",
+    title = "Total Run Proportion by Management River Over Time",
+    subtitle = "Percentage of entire watershed run from each management river by quartile",
     x = "Year (with quarterly increments)",
-    y = "Percent of Total Run",
+    y = "Proportion of Total Watershed Run (%)",
     color = "Management River"
   ) +
   theme_minimal() +
   theme(
     legend.position = "bottom",
-    panel.grid.minor = element_blank()
-  )
+    legend.title = element_text(face = "bold"),
+    plot.title = element_text(size = 14, face = "bold"),
+    panel.grid.minor.x = element_blank()
+  ) +
+  guides(color = guide_legend(ncol = min(3, ceiling(n_rivers/2))))
 
-print(p1)
+# Plot 2: Within-Quartile Proportion over time (FIXED - moved before ggsave)
+within_quartile_data <- both_ts_long %>%
+  filter(!is.na(within_quartile_prop), within_quartile_prop > 0)
 
-# make timeseries_wide into a matrix 
-river_names<- timeseries_wide$mgmt_river  # Extract river names
-timeseries_matrix <- as.matrix(timeseries_wide[,-1])  # Exclude the first column (mgmt_river)
-rownames(timeseries_matrix) <- river_names  # Set row names to river names
-
-state_numbers <- 1:10
-aicc_values <- numeric(length(state_numbers))
-
-for (i in seq_along(state_numbers)) {
-  m <- state_numbers[i]
-  model.list <- list(m = m, R = "diagonal and equal")
-  
-  model <- suppressMessages(suppressWarnings(
-    MARSS(timeseries_matrix,  # Using your existing matrix
-          model = model.list,
-          z.score = FALSE,
-          form = "dfa", 
-          control = list(maxit = 50000), 
-          method = "BFGS")
-  ))
-  
-  aicc_values[i] <- model$AICc
-}
-
-# Results
-results <- data.frame(
-  states = state_numbers,
-  AICc = aicc_values,
-  delta_AICc = aicc_values - min(aicc_values)
-)
-
-print(results)
-
-# Fit the optimal 7-trend model
-best_model <- suppressMessages(suppressWarnings(
-  MARSS(timeseries_matrix,
-        model = list(m = 6, R = "diagonal and equal"),
-        z.score = FALSE,
-        form = "dfa", 
-        control = list(maxit = 50000), 
-        method = "BFGS")
-))
-
-# Extract trends and loadings
-trends <- best_model$states
-Z <- coef(best_model, type = "matrix")$Z
-colnames(Z) <- paste("Trend", 1:6)
-
-# Create plots for each trend (side by side)
-plot_list <- list()
-
-# Create time labels - assuming quarterly data from 2017-2021
-years <- rep(2017:2021, each = 4)
-quarters <- rep(1:4, times = 5)
-time_labels <- paste0(years, "-Q", quarters)
-
-for (i in 1:6) {
-  # Trend time series with proper time labels
-  trend_data <- data.frame(
-    time = 1:ncol(trends),
-    year = years[1:ncol(trends)],
-    quarter = quarters[1:ncol(trends)],
-    value = trends[i, ],
-    time_label = time_labels[1:ncol(trends)]
-  )
-  
-  trend_plot <- ggplot(trend_data, aes(x = time, y = value)) +
-    geom_line(color = "steelblue", size = 1.2) +
-    geom_point(color = "steelblue", size = 2) +
-    geom_hline(yintercept = 0, linetype = "dashed", alpha = 0.5) +
-    scale_x_continuous(
-      breaks = trend_data$time,
-      labels = trend_data$time_label
-    ) +
-    labs(title = paste("Trend", i, "Time Series"),
-         x = "Year-Quarter", y = "Value") +
-    theme_minimal() +
-    theme(
-      plot.title = element_text(face = "bold", size = 12),
-      axis.text.x = element_text(angle = 45, hjust = 1, size = 8)
-    )
-  
-  # Loadings for this trend
-  loading_data <- data.frame(
-    Unit = rownames(Z),
-    Loading = Z[, i]
-  ) %>%
-    arrange(desc(abs(Loading)))
-  
-  loadings_plot <- ggplot(loading_data, aes(x = reorder(Unit, Loading), y = Loading, 
-                                            fill = Loading > 0)) +
-    geom_col() +
-    coord_flip() +
-    scale_fill_manual(values = c("FALSE" = "steelblue", "TRUE" = "coral"),
-                      name = "", labels = c("Negative", "Positive")) +
-    labs(title = paste("Trend", i, "Loadings"),
-         x = "Management Unit", y = "Loading") +
-    theme_minimal() +
-    theme(plot.title = element_text(face = "bold", size = 12),
-          legend.position = "bottom")
-  
-  # Combine trend and loadings side by side
-  combined_plot <- grid.arrange(trend_plot, loadings_plot, ncol = 2, 
-                                top = paste("TREND", i))
-  
-  plot_list[[i]] <- combined_plot
-}
-
-# Display all trends (you can also save them individually)
-for (i in 1:6) {
-  print(plot_list[[i]])
-}
-
-# Also create a summary table showing the strongest loadings for each trend
-cat("\n=== SUMMARY: STRONGEST LOADINGS FOR EACH TREND ===\n")
-for (i in 1:6) {
-  loadings_for_trend <- Z[, i]
-  
-  # Sort by absolute value to find strongest relationships
-  sorted_loadings <- sort(loadings_for_trend, decreasing = TRUE)
-  
-  cat(paste0("\nTrend ", i, ":\n"))
-  cat("  Most POSITIVE: ")
-  pos_units <- names(sorted_loadings[sorted_loadings > 0])[1:3]
-  pos_values <- round(sorted_loadings[sorted_loadings > 0][1:3], 2)
-  cat(paste(paste0(pos_units, " (", pos_values, ")"), collapse = ", "), "\n")
-  
-  cat("  Most NEGATIVE: ")
-  neg_loadings <- sort(loadings_for_trend[loadings_for_trend < 0])
-  if(length(neg_loadings) > 0) {
-    neg_units <- names(neg_loadings)[1:min(3, length(neg_loadings))]
-    neg_values <- round(neg_loadings[1:min(3, length(neg_loadings))], 2)
-    cat(paste(paste0(neg_units, " (", neg_values, ")"), collapse = ", "), "\n")
-  } else {
-    cat("None\n")
-  }
-}
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-#################### This portion is the proportion of each quartile made up of each management river. Doesn't take into account that there are different number of fish from each quartile 
-# Management Unit Timeseries Analysis
-# Shows proportion of each quartile made up of each management river
-# Note: Doesn't account for different numbers of fish from each quartile
-
-library(dplyr)
-library(tidyr)
-library(ggplot2)
-library(scales)
-
-# Load and prepare data
-timeseries_data <- read.csv("Analysis_Results/Management_Units/enhanced_management_unit_analysis.csv")
-
-timeseries_subset <- timeseries_data %>%
-  filter(!is.na(mgmt_river), mgmt_river != "", !is.na(proportion_within_quartile)) %>%
-  select(year, quartile, mgmt_river, proportion_within_quartile) %>%
-  mutate(
-    # Create decimal year for smooth plotting (Q1=0.125, Q2=0.375, etc.)
-    quartile_decimal = case_when(
-      quartile == "Q1" ~ 0.125, quartile == "Q2" ~ 0.375, 
-      quartile == "Q3" ~ 0.625, quartile == "Q4" ~ 0.875
-    ),
-    year_decimal = year + quartile_decimal
-  )
-
-# Plot original proportions
-num_rivers <- length(unique(timeseries_subset$mgmt_river))
-
-p1 <- ggplot(timeseries_subset, aes(x = year_decimal, y = proportion_within_quartile, color = mgmt_river)) +
-  geom_line(size = 1.2, alpha = 0.8) +
-  geom_point(size = 2, alpha = 0.9) +
-  scale_x_continuous(breaks = seq(min(timeseries_subset$year), max(timeseries_subset$year), by = 1)) +
-  scale_y_continuous(labels = scales::percent_format()) +
-  scale_color_manual(values = rainbow(num_rivers), name = "Management River") +
+p2 <- ggplot(within_quartile_data, aes(x = Time_Continuous, y = within_quartile_prop, color = mgmt_river)) +
+  geom_line(linewidth = 1.2, alpha = 0.8) +
+  geom_point(size = 2.5, alpha = 0.9) +
+  scale_color_manual(values = river_colors) +
+  scale_x_continuous(breaks = unique(within_quartile_data$year)) +
+  scale_y_continuous(labels = scales::percent_format(scale = 1), limits = c(0, NA)) +
   labs(
-    title = "Management Unit Proportional Contributions Within Each Quartile",
-    subtitle = paste("Relative dominance among", num_rivers, "managed rivers within each time period"),
-    x = "Year", y = "Proportion of Managed Rivers"
+    title = "Within-Quartile Proportion by Management River Over Time",
+    subtitle = "Proportion of each quartile's production from each management river",
+    x = "Year (with quarterly increments)",
+    y = "Proportion of Quartile (%)",
+    color = "Management River"
   ) +
   theme_minimal() +
-  theme(legend.position = "bottom") +
-  guides(color = guide_legend(ncol = 4))
+  theme(
+    legend.position = "bottom",
+    legend.title = element_text(face = "bold"),
+    plot.title = element_text(size = 14, face = "bold"),
+    panel.grid.minor.x = element_blank()
+  ) +
+  guides(color = guide_legend(ncol = min(3, ceiling(n_rivers/2))))
+
+# Save the initial visualization plots to Figures directory
+ggsave(file.path("/Users/benjaminmakhlouf/Research_repos/AYK_RunTiming/Analysis_Results/DFA/Figures", 
+                 "total_run_proportion_timeseries.png"), 
+       p1, width = 12, height = 8, dpi = 300, bg = "white")
+
+ggsave(file.path("/Users/benjaminmakhlouf/Research_repos/AYK_RunTiming/Analysis_Results/DFA/Figures", 
+                 "within_quartile_proportion_timeseries.png"), 
+       p2, width = 12, height = 8, dpi = 300, bg = "white")
 
 print(p1)
+print(p2)
 
-# Convert to wide format (rivers as rows, time periods as columns)
-quartile_timeseries_wide <- timeseries_subset %>%
-  mutate(time_period = paste0(year, "_", quartile)) %>%
-  select(mgmt_river, time_period, proportion_within_quartile) %>%
-  pivot_wider(names_from = time_period, values_from = proportion_within_quartile, values_fill = 0) %>%
-  arrange(mgmt_river)
+# ============================================================================
+# PART 3: PREPARE DATA FOR DFA - TOTAL RUN PROPORTION
+# ============================================================================
 
-# Z-normalize each river's timeseries (mean=0, sd=1)
-river_names <- quartile_timeseries_wide$mgmt_river
-numeric_data <- as.matrix(quartile_timeseries_wide[, -1])  # Remove river names column
-z_normalized_matrix <- t(scale(t(numeric_data)))           # Z-normalize each row
-z_normalized_matrix[is.nan(z_normalized_matrix)] <- 0      # Handle zero-variance rivers
+cat("\n=== PREPARING TOTAL RUN PROPORTION DATA FOR DFA ===\n")
 
-# Combine normalized data with river names and fix column names
-quartile_timeseries_z_normalized <- data.frame(
-  mgmt_river = river_names,
-  z_normalized_matrix,
+# Convert to wide format for DFA (rivers as rows, time periods as columns)
+total_run_wide <- both_ts_long %>%
+  filter(!is.na(total_run_prop)) %>%
+  select(mgmt_river, Time_Period, total_run_prop) %>%
+  pivot_wider(
+    names_from = Time_Period, 
+    values_from = total_run_prop, 
+    values_fill = 0
+  )
+
+# Convert to matrix format for MARSS
+river_names <- total_run_wide$mgmt_river
+total_run_matrix <- as.matrix(total_run_wide[, -1])
+rownames(total_run_matrix) <- river_names
+
+# Check for rivers with zero or near-zero production
+row_sums <- rowSums(total_run_matrix, na.rm = TRUE)
+row_vars <- apply(total_run_matrix, 1, var, na.rm = TRUE)
+
+# Remove rivers with zero production or zero variance
+good_rivers <- which(row_sums > 0 & row_vars > 1e-10 & !is.na(row_vars))
+total_run_matrix_clean <- total_run_matrix[good_rivers, ]
+
+cat("Total Run Proportion matrix dimensions:", dim(total_run_matrix_clean), "\n")
+cat("Rivers included:", rownames(total_run_matrix_clean), "\n")
+
+# ============================================================================
+# PART 4: DFA MODEL SELECTION - TOTAL RUN PROPORTION
+# ============================================================================
+
+cat("\n=== RUNNING DFA MODEL SELECTION FOR TOTAL RUN PROPORTION ===\n")
+
+aic_results_total <- data.frame(
+  states = 1:min(4, nrow(total_run_matrix_clean)),
+  AICc = numeric(min(4, nrow(total_run_matrix_clean))),
   stringsAsFactors = FALSE
 )
 
-# Fix column names (remove X prefix that R adds to numeric column names)
-colnames(quartile_timeseries_z_normalized) <- c("mgmt_river", colnames(quartile_timeseries_wide)[-1])
-
-# Convert z-normalized data back to long format for plotting
-z_timeseries_long <- quartile_timeseries_z_normalized %>%
-  pivot_longer(cols = -mgmt_river, names_to = "time_period", values_to = "z_score") %>%
-  separate(time_period, into = c("year", "quartile"), sep = "_") %>%
-  mutate(
-    year = as.numeric(year),
-    quartile_decimal = case_when(
-      quartile == "Q1" ~ 0.125, quartile == "Q2" ~ 0.375, 
-      quartile == "Q3" ~ 0.625, quartile == "Q4" ~ 0.875
-    ),
-    year_decimal = year + quartile_decimal
-  )
-
-# Plot z-normalized timeseries
-p2 <- ggplot(z_timeseries_long, aes(x = year_decimal, y = z_score, color = mgmt_river)) +
-  geom_line(size = 1.2, alpha = 0.8) +
-  geom_point(size = 2, alpha = 0.9) +
-  geom_hline(yintercept = 0, linetype = "dashed", color = "gray50", alpha = 0.7) +
-  scale_x_continuous(breaks = seq(min(z_timeseries_long$year), max(z_timeseries_long$year), by = 1)) +
-  scale_y_continuous(
-    breaks = seq(-3, 3, by = 1),
-    labels = function(x) paste0(x, "σ"),  # Add sigma symbol to show standard deviations
-    limits = c(min(z_timeseries_long$z_score) * 1.1, max(z_timeseries_long$z_score) * 1.1)
-  ) +
-  scale_color_manual(values = rainbow(num_rivers), name = "Management River") +
-  labs(
-    title = "Z-Normalized Management Unit Timeseries",
-    subtitle = "Each river standardized to mean=0, sd=1 • Shows relative timing patterns",
-    x = "Year", y = "Z-Score (standard deviations from river's mean)"
-  ) +
-  theme_minimal() +
-  theme(legend.position = "bottom") +
-  guides(color = guide_legend(ncol = 4))
-
-print(p2)
-
-# Convert to a matrix
-river_names <- quartile_timeseries_z_normalized$mgmt_river
-dfa_matrix <- as.matrix(quartile_timeseries_z_normalized[, -1])  # Remove river names column
-rownames(dfa_matrix) <- river_names
-
-###################################### 
-###################################### Data is ready for DFA Analysis 
-
-state_numbers <- 1:10
-aicc_values <- numeric(length(state_numbers))
-
-for (i in seq_along(state_numbers)) {
-  m <- state_numbers[i]
+for (m in 1:min(4, nrow(total_run_matrix_clean))) {
+  cat("Fitting model with", m, "trends...\n")
+  
   model.list <- list(m = m, R = "diagonal and equal")
   
   model <- suppressMessages(suppressWarnings(
-    MARSS(dfa_matrix,  # Using your existing matrix
+    MARSS(total_run_matrix_clean,
           model = model.list,
-          z.score = FALSE,
-          form = "dfa", 
-          control = list(maxit = 50000), 
+          z.score = TRUE,
+          form = "dfa",
+          control = list(maxit = 50000),
           method = "BFGS")
   ))
   
-  aicc_values[i] <- model$AICc
+  aic_results_total$AICc[m] <- model$AICc
 }
 
-# Results
-results <- data.frame(
-  states = state_numbers,
-  AICc = aicc_values,
-  delta_AICc = aicc_values - min(aicc_values)
-)
+# Calculate delta AICc
+aic_results_total$Delta_AICc <- aic_results_total$AICc - min(aic_results_total$AICc, na.rm = TRUE)
 
-print(results)
+cat("\nTotal Run Proportion - Model Selection Results:\n")
+print(aic_results_total)
 
-# DFA Analysis: Trends and Loadings Side by Side
-library(MARSS)
-library(tidyverse)
-library(ggplot2)
-library(gridExtra)
+# Find best model
+best_m_total <- which.min(aic_results_total$AICc)
+cat("\nBest model for Total Run Proportion:", best_m_total, "trends\n")
 
-# Fit the optimal 6-trend model
-best_model <- suppressMessages(suppressWarnings(
-  MARSS(dfa_matrix,
-        model = list(m = 4, R = "diagonal and equal"),
-        z.score = FALSE,
+# ============================================================================
+# PART 5: FIT BEST DFA MODEL - TOTAL RUN PROPORTION
+# ============================================================================
+
+cat("\n=== FITTING BEST DFA MODEL FOR TOTAL RUN PROPORTION ===\n")
+
+best_model_total <- suppressMessages(suppressWarnings(
+  MARSS(total_run_matrix_clean,
+        model = list(m = best_m_total, R = "diagonal and equal"),
+        z.score = TRUE,
         form = "dfa", 
         control = list(maxit = 50000), 
         method = "BFGS")
 ))
 
 # Extract trends and loadings
-trends <- best_model$states
-Z <- coef(best_model, type = "matrix")$Z
-colnames(Z) <- paste("Trend", 1:4)
+trends_total <- best_model_total$states
+Z_total <- coef(best_model_total, type = "matrix")$Z
+colnames(Z_total) <- paste("Trend", 1:best_m_total)
 
-# Create plots for each trend (side by side)
-plot_list <- list()
-
-# Create time labels - assuming quarterly data from 2017-2021
+# Create time labels for plotting
 years <- rep(2017:2021, each = 4)
 quarters <- rep(1:4, times = 5)
 time_labels <- paste0(years, "-Q", quarters)
 
-for (i in 1:4) {
-  # Trend time series with proper time labels
+# ============================================================================
+# PART 6: PLOT DFA RESULTS - TOTAL RUN PROPORTION
+# ============================================================================
+
+cat("\n=== PLOTTING DFA RESULTS FOR TOTAL RUN PROPORTION ===\n")
+
+for (i in 1:best_m_total) {
+  # Trend time series
   trend_data <- data.frame(
-    time = 1:ncol(trends),
-    year = years[1:ncol(trends)],
-    quarter = quarters[1:ncol(trends)],
-    value = trends[i, ],
-    time_label = time_labels[1:ncol(trends)]
+    time = 1:ncol(trends_total),
+    value = trends_total[i, ],
+    time_label = time_labels[1:ncol(trends_total)]
   )
   
   trend_plot <- ggplot(trend_data, aes(x = time, y = value)) +
-    geom_line(color = "steelblue", size = 1.2) +
+    geom_line(color = "steelblue", linewidth = 1.2) +
     geom_point(color = "steelblue", size = 2) +
     geom_hline(yintercept = 0, linetype = "dashed", alpha = 0.5) +
-    scale_x_continuous(
-      breaks = trend_data$time,
-      labels = trend_data$time_label
-    ) +
-    labs(title = paste("Trend", i, "Time Series"),
-         x = "Year-Quarter", y = "Value") +
+    scale_x_continuous(breaks = trend_data$time, labels = trend_data$time_label) +
+    labs(title = paste("Trend", i, "Time Series"), x = "Year-Quarter", y = "Value") +
     theme_minimal() +
     theme(
       plot.title = element_text(face = "bold", size = 12),
@@ -425,32 +246,423 @@ for (i in 1:4) {
     )
   
   # Loadings for this trend
-  loading_data <- data.frame(
-    Unit = rownames(Z),
-    Loading = Z[, i]
-  ) %>%
+  loading_data <- data.frame(Unit = rownames(Z_total), Loading = Z_total[, i]) %>%
     arrange(desc(abs(Loading)))
   
-  loadings_plot <- ggplot(loading_data, aes(x = reorder(Unit, Loading), y = Loading, 
-                                            fill = Loading > 0)) +
+  loadings_plot <- ggplot(loading_data, aes(x = reorder(Unit, Loading), 
+                                            y = Loading, fill = Loading > 0)) +
     geom_col() +
     coord_flip() +
-    scale_fill_manual(values = c("FALSE" = "steelblue", "TRUE" = "coral"),
-                      name = "", labels = c("Negative", "Positive")) +
-    labs(title = paste("Trend", i, "Loadings"),
-         x = "Management Unit", y = "Loading") +
+    scale_fill_manual(
+      values = c("FALSE" = "steelblue", "TRUE" = "coral"),
+      name = "", labels = c("Negative", "Positive")
+    ) +
+    labs(title = paste("Trend", i, "Loadings"), x = "Management Unit", y = "Loading") +
     theme_minimal() +
-    theme(plot.title = element_text(face = "bold", size = 12),
-          legend.position = "bottom")
+    theme(
+      plot.title = element_text(face = "bold", size = 12), 
+      legend.position = "bottom"
+    )
   
-  # Combine trend and loadings side by side
+  # Display combined plot
   combined_plot <- grid.arrange(trend_plot, loadings_plot, ncol = 2, 
-                                top = paste("TREND", i))
+                                top = paste("TOTAL RUN PROPORTION - TREND", i))
   
-  plot_list[[i]] <- combined_plot
+  # Save the plot to Figures directory
+  ggsave(file.path("/Users/benjaminmakhlouf/Research_repos/AYK_RunTiming/Analysis_Results/DFA/Figures", 
+                   paste0("total_run_proportion_trend_", i, "_plot.png")), 
+         combined_plot, width = 12, height = 6, dpi = 300, bg = "white")
+  
+  print(combined_plot)
 }
 
-# Display all trends (you can also save them individually)
-for (i in 1:6) {
-  print(plot_list[[i]])
+# ============================================================================
+# PART 7: PREPARE DATA FOR DFA - WITHIN-QUARTILE PROPORTION
+# ============================================================================
+
+cat("\n=== PREPARING WITHIN-QUARTILE PROPORTION DATA FOR DFA ===\n")
+
+# Convert to wide format for DFA (rivers as rows, time periods as columns)
+within_quartile_wide <- both_ts_long %>%
+  filter(!is.na(within_quartile_prop)) %>%
+  select(mgmt_river, Time_Period, within_quartile_prop) %>%
+  pivot_wider(
+    names_from = Time_Period, 
+    values_from = within_quartile_prop, 
+    values_fill = 0
+  )
+
+# Convert to matrix format for MARSS
+river_names_wq <- within_quartile_wide$mgmt_river
+within_quartile_matrix <- as.matrix(within_quartile_wide[, -1])
+rownames(within_quartile_matrix) <- river_names_wq
+
+# Check for rivers with zero or near-zero production
+row_sums_wq <- rowSums(within_quartile_matrix, na.rm = TRUE)
+row_vars_wq <- apply(within_quartile_matrix, 1, var, na.rm = TRUE)
+
+# Remove rivers with zero production or zero variance
+good_rivers_wq <- which(row_sums_wq > 0 & row_vars_wq > 1e-10 & !is.na(row_vars_wq))
+within_quartile_matrix_clean <- within_quartile_matrix[good_rivers_wq, ]
+
+cat("Within-Quartile Proportion matrix dimensions:", dim(within_quartile_matrix_clean), "\n")
+cat("Rivers included:", rownames(within_quartile_matrix_clean), "\n")
+
+# ============================================================================
+# PART 8: DFA MODEL SELECTION - WITHIN-QUARTILE PROPORTION
+# ============================================================================
+
+cat("\n=== RUNNING DFA MODEL SELECTION FOR WITHIN-QUARTILE PROPORTION ===\n")
+
+aic_results_within <- data.frame(
+  states = 1:min(4, nrow(within_quartile_matrix_clean)),
+  AICc = numeric(min(4, nrow(within_quartile_matrix_clean))),
+  stringsAsFactors = FALSE
+)
+
+for (m in 1:min(4, nrow(within_quartile_matrix_clean))) {
+  cat("Fitting model with", m, "trends...\n")
+  
+  model.list <- list(m = m, R = "diagonal and equal")
+  
+  model <- suppressMessages(suppressWarnings(
+    MARSS(within_quartile_matrix_clean,
+          model = model.list,
+          z.score = TRUE,
+          form = "dfa",
+          control = list(maxit = 50000),
+          method = "BFGS")
+  ))
+  
+  aic_results_within$AICc[m] <- model$AICc
 }
+
+# Calculate delta AICc
+aic_results_within$Delta_AICc <- aic_results_within$AICc - min(aic_results_within$AICc, na.rm = TRUE)
+
+cat("\nWithin-Quartile Proportion - Model Selection Results:\n")
+print(aic_results_within)
+
+# Find best model
+best_m_within <- which.min(aic_results_within$AICc)
+cat("\nBest model for Within-Quartile Proportion:", best_m_within, "trends\n")
+
+# ============================================================================
+# PART 9: FIT BEST DFA MODEL - WITHIN-QUARTILE PROPORTION
+# ============================================================================
+
+cat("\n=== FITTING BEST DFA MODEL FOR WITHIN-QUARTILE PROPORTION ===\n")
+
+best_model_within <- suppressMessages(suppressWarnings(
+  MARSS(within_quartile_matrix_clean,
+        model = list(m = best_m_within, R = "diagonal and equal"),
+        z.score = TRUE,
+        form = "dfa", 
+        control = list(maxit = 50000), 
+        method = "BFGS")
+))
+
+# Extract trends and loadings
+trends_within <- best_model_within$states
+Z_within <- coef(best_model_within, type = "matrix")$Z
+colnames(Z_within) <- paste("Trend", 1:best_m_within)
+
+# ============================================================================
+# PART 10: PLOT DFA RESULTS - WITHIN-QUARTILE PROPORTION
+# ============================================================================
+
+cat("\n=== PLOTTING DFA RESULTS FOR WITHIN-QUARTILE PROPORTION ===\n")
+
+for (i in 1:best_m_within) {
+  # Trend time series
+  trend_data_wq <- data.frame(
+    time = 1:ncol(trends_within),
+    value = trends_within[i, ],
+    time_label = time_labels[1:ncol(trends_within)]
+  )
+  
+  trend_plot_wq <- ggplot(trend_data_wq, aes(x = time, y = value)) +
+    geom_line(color = "darkgreen", linewidth = 1.2) +
+    geom_point(color = "darkgreen", size = 2) +
+    geom_hline(yintercept = 0, linetype = "dashed", alpha = 0.5) +
+    scale_x_continuous(breaks = trend_data_wq$time, labels = trend_data_wq$time_label) +
+    labs(title = paste("Trend", i, "Time Series"), x = "Year-Quarter", y = "Value") +
+    theme_minimal() +
+    theme(
+      plot.title = element_text(face = "bold", size = 12),
+      axis.text.x = element_text(angle = 45, hjust = 1, size = 8)
+    )
+  
+  # Loadings for this trend
+  loading_data_wq <- data.frame(Unit = rownames(Z_within), Loading = Z_within[, i]) %>%
+    arrange(desc(abs(Loading)))
+  
+  loadings_plot_wq <- ggplot(loading_data_wq, aes(x = reorder(Unit, Loading), 
+                                                  y = Loading, fill = Loading > 0)) +
+    geom_col() +
+    coord_flip() +
+    scale_fill_manual(
+      values = c("FALSE" = "darkgreen", "TRUE" = "orange"),
+      name = "", labels = c("Negative", "Positive")
+    ) +
+    labs(title = paste("Trend", i, "Loadings"), x = "Management Unit", y = "Loading") +
+    theme_minimal() +
+    theme(
+      plot.title = element_text(face = "bold", size = 12), 
+      legend.position = "bottom"
+    )
+  
+  # Display combined plot
+  combined_plot_wq <- grid.arrange(trend_plot_wq, loadings_plot_wq, ncol = 2, 
+                                   top = paste("WITHIN-QUARTILE PROPORTION - TREND", i))
+  
+  # Save the plot to Figures directory
+  ggsave(file.path("/Users/benjaminmakhlouf/Research_repos/AYK_RunTiming/Analysis_Results/DFA/Figures", 
+                   paste0("within_quartile_proportion_trend_", i, "_plot.png")), 
+         combined_plot_wq, width = 12, height = 6, dpi = 300, bg = "white")
+  
+  print(combined_plot_wq)
+}
+
+# ============================================================================
+# PART 11: SUMMARY AND COMPARISON
+# ============================================================================
+
+cat("\n=== ANALYSIS SUMMARY ===\n")
+
+# Create summary comparison
+summary_df <- data.frame(
+  Analysis_Type = c("Total Run Proportion", "Within-Quartile Proportion"),
+  Best_Model_Trends = c(best_m_total, best_m_within),
+  Best_AICc = c(min(aic_results_total$AICc), min(aic_results_within$AICc)),
+  Rivers_Included = c(nrow(total_run_matrix_clean), nrow(within_quartile_matrix_clean)),
+  Time_Points = c(ncol(total_run_matrix_clean), ncol(within_quartile_matrix_clean))
+)
+
+print(summary_df)
+
+cat("\n=== MODEL SELECTION COMPARISON ===\n")
+cat("Total Run Proportion AIC Results:\n")
+print(aic_results_total)
+cat("\nWithin-Quartile Proportion AIC Results:\n")
+print(aic_results_within)
+
+# Save results to files
+cat("\n=== SAVING RESULTS ===\n")
+
+# Create output directories
+figures_dir <- "/Users/benjaminmakhlouf/Research_repos/AYK_RunTiming/Analysis_Results/DFA/Figures"
+maps_dir <- "/Users/benjaminmakhlouf/Research_repos/AYK_RunTiming/Analysis_Results/DFA/Maps"
+results_dir <- "/Users/benjaminmakhlouf/Research_repos/AYK_RunTiming/Analysis_Results/DFA/Results"
+dir.create(figures_dir, showWarnings = FALSE, recursive = TRUE)
+dir.create(maps_dir, showWarnings = FALSE, recursive = TRUE)
+dir.create(results_dir, showWarnings = FALSE, recursive = TRUE)
+
+# Save model selection results
+write.csv(aic_results_total, file.path(results_dir, "total_run_proportion_model_selection.csv"), row.names = FALSE)
+write.csv(aic_results_within, file.path(results_dir, "within_quartile_proportion_model_selection.csv"), row.names = FALSE)
+
+# Save trend data
+trends_total_df <- data.frame(
+  Time = time_labels[1:ncol(trends_total)],
+  as.data.frame(t(trends_total))
+)
+colnames(trends_total_df)[-1] <- paste("Trend", 1:best_m_total)
+
+trends_within_df <- data.frame(
+  Time = time_labels[1:ncol(trends_within)],
+  as.data.frame(t(trends_within))
+)
+colnames(trends_within_df)[-1] <- paste("Trend", 1:best_m_within)
+
+write.csv(trends_total_df, file.path(results_dir, "total_run_proportion_trends.csv"), row.names = FALSE)
+write.csv(trends_within_df, file.path(results_dir, "within_quartile_proportion_trends.csv"), row.names = FALSE)
+
+# Save loadings
+loadings_total_df <- data.frame(
+  Management_Unit = rownames(Z_total),
+  Z_total
+)
+loadings_within_df <- data.frame(
+  Management_Unit = rownames(Z_within),
+  Z_within
+)
+
+write.csv(loadings_total_df, file.path(results_dir, "total_run_proportion_loadings.csv"), row.names = FALSE)
+write.csv(loadings_within_df, file.path(results_dir, "within_quartile_proportion_loadings.csv"), row.names = FALSE)
+
+cat("Analysis complete! Results saved to CSV files.\n")
+
+# ============================================================================
+# PART 12: CREATE SPATIAL MAPS WITH LOADINGS (FIXED - Stream Order Line Width)
+# ============================================================================
+
+cat("\n=== CREATING SPATIAL MAPS WITH LOADINGS ===\n")
+
+# Load spatial data (adjust path as needed)
+tryCatch({
+  # Load the Kusko edges shapefile with management river information
+  edges <- st_read("/Users/benjaminmakhlouf/Spatial Data/KuskoUSGS_HUC_joined.shp", quiet = TRUE)
+  basin <- st_read("/Users/benjaminmakhlouf/Desktop/Research/isoscapes_new/Kusko/Kusko_basin.shp", quiet = TRUE)
+  
+  cat("Loaded spatial data successfully\n")
+  cat("Edges loaded:", nrow(edges), "features\n")
+  cat("Basin loaded:", nrow(basin), "features\n")
+  
+  # Check if mgmt_river column exists
+  if ("mgmt_river" %in% colnames(edges)) {
+    cat("Management river data available\n")
+    
+    # Function to create trend and loading maps
+    create_trend_loading_maps <- function(trends_data, Z_matrix, analysis_name, edges_sf, basin_sf) {
+      
+      n_trends <- ncol(Z_matrix)
+      
+      for (trend_num in 1:n_trends) {
+        cat(paste("Creating maps for", analysis_name, "Trend", trend_num, "\n"))
+        
+        # Prepare trend time series data
+        trend_data <- data.frame(
+          time = 1:length(trends_data[trend_num, ]),
+          value = as.numeric(trends_data[trend_num, ]),
+          time_label = time_labels[1:length(trends_data[trend_num, ])]
+        )
+        
+        # Create trend time series plot
+        trend_plot <- ggplot(trend_data, aes(x = time, y = value)) +
+          geom_line(color = "steelblue", linewidth = 1.5, alpha = 0.8) +
+          geom_point(color = "steelblue", size = 3, alpha = 0.9) +
+          geom_hline(yintercept = 0, linetype = "dashed", alpha = 0.5) +
+          scale_x_continuous(breaks = trend_data$time, labels = trend_data$time_label) +
+          labs(
+            title = paste(analysis_name, "- Trend", trend_num, "Time Series"),
+            x = "Year-Quarter", 
+            y = "Trend Value"
+          ) +
+          theme_minimal() +
+          theme(
+            plot.title = element_text(face = "bold", size = 14),
+            axis.text.x = element_text(angle = 45, hjust = 1, size = 10),
+            axis.text.y = element_text(size = 10),
+            axis.title = element_text(size = 12, face = "bold")
+          )
+        
+        # Prepare loadings data
+        loadings_data <- data.frame(
+          mgmt_river = rownames(Z_matrix),
+          loading = Z_matrix[, trend_num],
+          stringsAsFactors = FALSE
+        )
+        
+        # Join loadings with spatial data
+        edges_with_loadings <- edges_sf %>%
+          left_join(loadings_data, by = "mgmt_river") %>%
+          # Only keep edges with management river assignments
+          filter(!is.na(mgmt_river) & mgmt_river != "") %>%
+          # Calculate line width based on stream order (0.3 to 3.0 range)
+          mutate(
+            # Assuming stream order column is named 'Str_Order' - adjust if different
+            stream_order = ifelse(is.na(Str_Order), 3, Str_Order),  # Default to 3 if missing
+            # Scale stream order to line width range (0.3 to 3.0)
+            line_width = pmax(0.3, pmin(3.0, 0.3 + (stream_order - min(stream_order, na.rm = TRUE)) * 
+                                          (3.0 - 0.3) / (max(stream_order, na.rm = TRUE) - min(stream_order, na.rm = TRUE))))
+          )
+        
+        # Create the spatial map
+        if (nrow(edges_with_loadings) > 0) {
+          
+          # Ensure basin and edges have same CRS
+          if (st_crs(basin_sf) != st_crs(edges_with_loadings)) {
+            basin_sf <- st_transform(basin_sf, st_crs(edges_with_loadings))
+          }
+          
+          # Get the range of stream orders for legend
+          stream_order_range <- range(edges_with_loadings$stream_order, na.rm = TRUE)
+          
+          # Create the map
+          map_plot <- ggplot() +
+            # Add basin boundary
+            geom_sf(data = basin_sf, fill = "gray95", color = "gray70", 
+                    linewidth = 0.5, alpha = 0.3) +
+            # Add edges colored by loadings, sized by stream order
+            geom_sf(data = edges_with_loadings, 
+                    aes(color = loading, linewidth = stream_order), 
+                    alpha = 0.8) +
+            # Use diverging color scale (blue to red) for loadings
+            scale_color_gradient2(
+              low = "blue", 
+              mid = "white", 
+              high = "red", 
+              midpoint = 0,
+              name = "Loading\nValue",
+              limits = c(-max(abs(loadings_data$loading)), max(abs(loadings_data$loading))),
+              labels = function(x) sprintf("%.2f", x)
+            ) +
+            # Scale line width by stream order (0.3 to 3.0 range)
+            scale_linewidth_continuous(
+              range = c(0.3, 3.0), 
+              name = "Stream\nOrder",
+              breaks = pretty(stream_order_range, n = 4),
+              labels = function(x) as.character(round(x))
+            ) +
+            coord_sf(datum = NA) +
+            labs(
+              title = paste(analysis_name, "- Trend", trend_num, "Loadings Map"),
+              subtitle = "Rivers colored by loading values (blue = negative, red = positive)",
+              caption = "Line thickness represents stream order (higher order = thicker lines)"
+            ) +
+            theme_void() +
+            theme(
+              plot.title = element_text(face = "bold", size = 14, hjust = 0.5),
+              plot.subtitle = element_text(size = 12, hjust = 0.5),
+              plot.caption = element_text(size = 10, hjust = 0.5),
+              legend.position = "right",
+              legend.title = element_text(face = "bold", size = 10),
+              legend.text = element_text(size = 9),
+              panel.background = element_rect(fill = "white", color = NA),
+              plot.background = element_rect(fill = "white", color = NA)
+            )
+          
+          # Save the combined figure to Maps directory (without displaying)
+          filename <- file.path("/Users/benjaminmakhlouf/Research_repos/AYK_RunTiming/Analysis_Results/DFA/Maps",
+                                paste0(gsub(" ", "_", tolower(analysis_name)), "_trend_", trend_num, "_map.png"))
+          
+          # Create and save the plot without displaying it
+          png(filename, width = 16, height = 8, units = "in", res = 300, bg = "white")
+          grid.arrange(
+            trend_plot, map_plot, 
+            ncol = 2, 
+            widths = c(1, 1.2),
+            top = textGrob(paste(analysis_name, "- Trend", trend_num, "Analysis"), 
+                           gp = gpar(fontsize = 16, fontface = "bold"))
+          )
+          dev.off()
+          cat(paste("Saved:", filename, "\n"))
+          
+        } else {
+          cat(paste("No spatial data available for", analysis_name, "Trend", trend_num, "\n"))
+        }
+      }
+    }
+    
+    # Create maps for Total Run Proportion analysis
+    cat("\nCreating Total Run Proportion maps...\n")
+    create_trend_loading_maps(trends_total, Z_total, "Total Run Proportion", edges, basin)
+    
+    # Create maps for Within-Quartile Proportion analysis  
+    cat("\nCreating Within-Quartile Proportion maps...\n")
+    create_trend_loading_maps(trends_within, Z_within, "Within-Quartile Proportion", edges, basin)
+    
+    cat("\nAll spatial maps created successfully!\n")
+    
+  } else {
+    cat("Warning: mgmt_river column not found in spatial data\n")
+    cat("Available columns:", paste(colnames(edges), collapse = ", "), "\n")
+  }
+  
+}, error = function(e) {
+  cat("Error loading spatial data:", e$message, "\n")
+  cat("Spatial maps will be skipped\n")
+})
+
+cat("\n=== COMPLETE ANALYSIS WITH SPATIAL MAPS FINISHED ===\n")

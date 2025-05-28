@@ -808,7 +808,7 @@ export_mgmt_analysis_csv <- function(export_data) {
 ################################################################################
 
 # Set analysis parameters
-years <- c("2017", "2019", "2020", "2021")
+years <- c("2017","2018", "2019", "2020", "2021")
 watersheds <- c("Kusko")
 
 message("=== Running Simplified Analysis Suite ===")
