@@ -1,6 +1,6 @@
 # ============================================================================
 # Dynamic Factor Analysis (DFA) for Management Unit Salmon Run Timing
-# Complete script for both Total Run and Within-Quartile Proportion analysis
+# Clean script with RMSE calculation
 # ============================================================================
 
 # Load required libraries --------------------------------------------------
@@ -12,7 +12,7 @@ library(stringr)
 library(scales)
 library(MARSS)
 library(gridExtra)
-library(grid)  # Added for textGrob function
+library(grid)
 library(sf)
 library(viridis)
 
@@ -44,6 +44,10 @@ both_ts_long <- both_ts_long %>%
     Time_Period = paste0(year, "_", Quartile_Clean)
   )
 
+# ============================================================================
+# PART 2: VISUALIZATION OF RAW DATA
+# ============================================================================
+
 # Create color palette for rivers
 mgmt_rivers <- unique(both_ts_long$mgmt_river)
 n_rivers <- length(mgmt_rivers)
@@ -54,10 +58,6 @@ if(n_rivers <= 11) {
   river_colors <- colorRampPalette(RColorBrewer::brewer.pal(11, "Spectral"))(n_rivers)
 }
 names(river_colors) <- mgmt_rivers
-
-# ============================================================================
-# PART 2: VISUALIZATION OF RAW DATA
-# ============================================================================
 
 # Plot 1: Total Run Proportion over time
 total_run_data <- both_ts_long %>%
@@ -85,7 +85,7 @@ p1 <- ggplot(total_run_data, aes(x = Time_Continuous, y = total_run_prop, color 
   ) +
   guides(color = guide_legend(ncol = min(3, ceiling(n_rivers/2))))
 
-# Plot 2: Within-Quartile Proportion over time (FIXED - moved before ggsave)
+# Plot 2: Within-Quartile Proportion over time
 within_quartile_data <- both_ts_long %>%
   filter(!is.na(within_quartile_prop), within_quartile_prop > 0)
 
@@ -152,47 +152,130 @@ row_vars <- apply(total_run_matrix, 1, var, na.rm = TRUE)
 good_rivers <- which(row_sums > 0 & row_vars > 1e-10 & !is.na(row_vars))
 total_run_matrix_clean <- total_run_matrix[good_rivers, ]
 
-cat("Total Run Proportion matrix dimensions:", dim(total_run_matrix_clean), "\n")
-cat("Rivers included:", rownames(total_run_matrix_clean), "\n")
-
 # ============================================================================
-# PART 4: DFA MODEL SELECTION - TOTAL RUN PROPORTION
+# PART 3: FIT DFA MODEL
 # ============================================================================
 
-cat("\n=== RUNNING DFA MODEL SELECTION FOR TOTAL RUN PROPORTION ===\n")
+cat("\n=== FITTING DFA MODEL ===\n")
 
-aic_results_total <- data.frame(
-  states = 1:min(4, nrow(total_run_matrix_clean)),
-  AICc = numeric(min(4, nrow(total_run_matrix_clean))),
-  stringsAsFactors = FALSE
-)
+# Set up model parameters
+model.list <- list(m = 3, R = "diagonal and equal")
 
-for (m in 1:min(4, nrow(total_run_matrix_clean))) {
-  cat("Fitting model with", m, "trends...\n")
+# Fit DFA model
+dfa_1 <- MARSS(total_run_matrix_clean,
+               model = model.list,
+               z.score = TRUE,
+               form = "dfa",
+               control = list(maxit = 50000),
+               method = "BFGS")
+
+# ============================================================================
+# PART 4: MODEL EVALUATION - RMSE AND CROSS-VALIDATION
+# ============================================================================
+
+# Function to get DFA fitted values
+get_DFA_fits <- function(MLEobj, dd = NULL, alpha = 0.05) {
+  fits <- list()
+  Ey <- MARSS:::MARSShatyt(MLEobj)
+  ZZ <- coef(MLEobj, type = "matrix")$Z
+  H_inv <- varimax(ZZ)$rotmat
   
-  model.list <- list(m = m, R = "diagonal and equal")
+  if (!is.null(dd)) {
+    DD <- coef(MLEobj, type = "matrix")$D
+    fits$ex <- ZZ %*% H_inv %*% MLEobj$states + DD %*% dd
+  } else {
+    fits$ex <- ZZ %*% H_inv %*% MLEobj$states
+  }
   
-  model <- suppressMessages(suppressWarnings(
-    MARSS(total_run_matrix_clean,
-          model = model.list,
-          z.score = TRUE,
-          form = "dfa",
-          control = list(maxit = 50000),
-          method = "BFGS")
-  ))
-  
-  aic_results_total$AICc[m] <- model$AICc
+  VtT <- MARSSkfss(MLEobj)$VtT
+  VV <- NULL
+  for (tt in 1:ncol(fits$ex)) {
+    RZVZ <- coef(MLEobj, type = "matrix")$R - ZZ %*% VtT[, , tt] %*% t(ZZ)
+    SS <- Ey$yxtT[, , tt] - Ey$ytT[, tt, drop = FALSE] %*% 
+      t(MLEobj$states[, tt, drop = FALSE])
+    VV <- cbind(VV, diag(RZVZ + SS %*% t(ZZ) + ZZ %*% t(SS)))
+  }
+  SE <- sqrt(VV)
+  fits$up <- qnorm(1 - alpha/2) * SE + fits$ex
+  fits$lo <- qnorm(alpha/2) * SE + fits$ex
+  return(fits)
 }
 
-# Calculate delta AICc
-aic_results_total$Delta_AICc <- aic_results_total$AICc - min(aic_results_total$AICc, na.rm = TRUE)
+# Calculate RMSE function
+calculate_rmse <- function(dfa_model, data_matrix, holdout_cols = NULL) {
+  fitted_values <- get_DFA_fits(dfa_model)$ex
+  observed_zscore <- (data_matrix - rowMeans(data_matrix, na.rm = TRUE)) / 
+    apply(data_matrix, 1, sd, na.rm = TRUE)
+  
+  if (!is.null(holdout_cols)) {
+    # Calculate RMSE only for held-out columns
+    residuals <- observed_zscore[, holdout_cols] - fitted_values[, holdout_cols]
+  } else {
+    # Calculate RMSE for all data
+    residuals <- observed_zscore - fitted_values
+  }
+  
+  rmse <- sqrt(mean(residuals^2, na.rm = TRUE))
+  return(rmse)
+}
 
-cat("\nTotal Run Proportion - Model Selection Results:\n")
-print(aic_results_total)
+# Cross-validation function
+dfa_cross_validation <- function(data_matrix, fold_size = 4, m = 3, R = "diagonal and equal") {
+  n_cols <- ncol(data_matrix)
+  n_folds <- ceiling(n_cols / fold_size)
+  rmse_values <- numeric(n_folds)
+  
+  cat(sprintf("\n=== CROSS-VALIDATION ===\n"))
+  cat(sprintf("Running %d folds with %d columns per fold\n", n_folds, fold_size))
+  
+  for(fold in 1:n_folds) {
+    start_col <- (fold - 1) * fold_size + 1
+    end_col <- min(fold * fold_size, n_cols)
+    
+    # Create training data with held-out columns as NA
+    train_data <- data_matrix
+    train_data[, start_col:end_col] <- NA
+    
+    tryCatch({
+      # Fit model
+      dfa_fold <- MARSS(train_data, model = list(m = m, R = R), 
+                        z.score = TRUE, form = "dfa", 
+                        control = list(maxit = 50000), method = "BFGS", silent = TRUE)
+      
+      if(dfa_fold$convergence == 0) {
+        rmse_values[fold] <- calculate_rmse(dfa_fold, data_matrix, start_col:end_col)
+        cat(sprintf("Fold %d: RMSE = %.4f\n", fold, rmse_values[fold]))
+      } else {
+        rmse_values[fold] <- NA
+        cat(sprintf("Fold %d: Failed to converge\n", fold))
+      }
+    }, error = function(e) {
+      rmse_values[fold] <- NA
+      cat(sprintf("Fold %d: Error\n", fold))
+    })
+  }
+  
+  return(rmse_values[!is.na(rmse_values)])
+}
 
-# Find best model
-best_m_total <- which.min(aic_results_total$AICc)
-cat("\nBest model for Total Run Proportion:", best_m_total, "trends\n")
+# Calculate full model RMSE
+model_rmse <- calculate_rmse(dfa_1, total_run_matrix_clean)
+
+# Run cross-validation
+cv_rmse_values <- dfa_cross_validation(total_run_matrix_clean, fold_size = 4, m = 3)
+cv_rmse <- mean(cv_rmse_values)
+
+# Print results
+cat("\n=== MODEL EVALUATION RESULTS ===\n")
+cat(sprintf("Full Model RMSE: %.4f\n", model_rmse))
+cat(sprintf("Cross-Validated RMSE: %.4f (±%.4f)\n", cv_rmse, sd(cv_rmse_values)))
+cat(sprintf("AIC: %.2f | AICc: %.2f | Log-likelihood: %.2f\n", 
+            dfa_1$AIC, dfa_1$AICc, dfa_1$logLik))
+
+
+
+
+
 
 # ============================================================================
 # PART 5: FIT BEST DFA MODEL - TOTAL RUN PROPORTION
@@ -209,9 +292,18 @@ best_model_total <- suppressMessages(suppressWarnings(
         method = "BFGS")
 ))
 
-# Extract trends and loadings
-trends_total <- best_model_total$states
-Z_total <- coef(best_model_total, type = "matrix")$Z
+# Extract original trends and loadings
+trends_total_orig <- best_model_total$states
+Z_total_orig <- coef(best_model_total, type = "matrix")$Z
+
+# Apply varimax rotation for better interpretation
+cat("Applying varimax rotation for clearer interpretation...\n")
+varimax_result_total <- varimax(Z_total_orig)
+H_inv_total <- varimax_result_total$rotmat
+
+# Rotate loadings and trends
+Z_total <- Z_total_orig %*% H_inv_total
+trends_total <- solve(H_inv_total) %*% trends_total_orig
 colnames(Z_total) <- paste("Trend", 1:best_m_total)
 
 # Create time labels for plotting
@@ -305,8 +397,6 @@ row_vars_wq <- apply(within_quartile_matrix, 1, var, na.rm = TRUE)
 good_rivers_wq <- which(row_sums_wq > 0 & row_vars_wq > 1e-10 & !is.na(row_vars_wq))
 within_quartile_matrix_clean <- within_quartile_matrix[good_rivers_wq, ]
 
-cat("Within-Quartile Proportion matrix dimensions:", dim(within_quartile_matrix_clean), "\n")
-cat("Rivers included:", rownames(within_quartile_matrix_clean), "\n")
 
 # ============================================================================
 # PART 8: DFA MODEL SELECTION - WITHIN-QUARTILE PROPORTION
@@ -339,13 +429,8 @@ for (m in 1:min(4, nrow(within_quartile_matrix_clean))) {
 
 # Calculate delta AICc
 aic_results_within$Delta_AICc <- aic_results_within$AICc - min(aic_results_within$AICc, na.rm = TRUE)
-
-cat("\nWithin-Quartile Proportion - Model Selection Results:\n")
-print(aic_results_within)
-
 # Find best model
 best_m_within <- which.min(aic_results_within$AICc)
-cat("\nBest model for Within-Quartile Proportion:", best_m_within, "trends\n")
 
 # ============================================================================
 # PART 9: FIT BEST DFA MODEL - WITHIN-QUARTILE PROPORTION
@@ -362,9 +447,18 @@ best_model_within <- suppressMessages(suppressWarnings(
         method = "BFGS")
 ))
 
-# Extract trends and loadings
-trends_within <- best_model_within$states
-Z_within <- coef(best_model_within, type = "matrix")$Z
+# Extract original trends and loadings
+trends_within_orig <- best_model_within$states
+Z_within_orig <- coef(best_model_within, type = "matrix")$Z
+
+# Apply varimax rotation for better interpretation
+cat("Applying varimax rotation for clearer interpretation...\n")
+varimax_result_within <- varimax(Z_within_orig)
+H_inv_within <- varimax_result_within$rotmat
+
+# Rotate loadings and trends
+Z_within <- Z_within_orig %*% H_inv_within
+trends_within <- solve(H_inv_within) %*% trends_within_orig
 colnames(Z_within) <- paste("Trend", 1:best_m_within)
 
 # ============================================================================
@@ -462,7 +556,7 @@ dir.create(results_dir, showWarnings = FALSE, recursive = TRUE)
 write.csv(aic_results_total, file.path(results_dir, "total_run_proportion_model_selection.csv"), row.names = FALSE)
 write.csv(aic_results_within, file.path(results_dir, "within_quartile_proportion_model_selection.csv"), row.names = FALSE)
 
-# Save trend data
+# Save trend data (rotated)
 trends_total_df <- data.frame(
   Time = time_labels[1:ncol(trends_total)],
   as.data.frame(t(trends_total))
@@ -478,7 +572,7 @@ colnames(trends_within_df)[-1] <- paste("Trend", 1:best_m_within)
 write.csv(trends_total_df, file.path(results_dir, "total_run_proportion_trends.csv"), row.names = FALSE)
 write.csv(trends_within_df, file.path(results_dir, "within_quartile_proportion_trends.csv"), row.names = FALSE)
 
-# Save loadings
+# Save loadings (rotated)
 loadings_total_df <- data.frame(
   Management_Unit = rownames(Z_total),
   Z_total
@@ -494,7 +588,7 @@ write.csv(loadings_within_df, file.path(results_dir, "within_quartile_proportion
 cat("Analysis complete! Results saved to CSV files.\n")
 
 # ============================================================================
-# PART 12: CREATE SPATIAL MAPS WITH LOADINGS (FIXED - Stream Order Line Width)
+# PART 12: CREATE SPATIAL MAPS WITH LOADINGS
 # ============================================================================
 
 cat("\n=== CREATING SPATIAL MAPS WITH LOADINGS ===\n")
@@ -665,4 +759,5 @@ tryCatch({
   cat("Spatial maps will be skipped\n")
 })
 
-cat("\n=== COMPLETE ANALYSIS WITH SPATIAL MAPS FINISHED ===\n")
+cat("\n=== COMPLETE ANALYSIS WITH VARIMAX ROTATION FINISHED ===\n")
+cat("Note: All results use varimax-rotated loadings for optimal interpretation.\n")
