@@ -1,30 +1,36 @@
 # ============================================================================
-# Dynamic Factor Analysis (DFA) for Management Unit Salmon Run Timing
-# Clean script with RMSE calculation
+# Dynamic Factor Analysis (DFA) for Salmon Proportion of Total
+# Polished Analysis Script - Model comparison and visualization
 # ============================================================================
 
-# Load required libraries --------------------------------------------------
-library(dplyr)
-library(tidyr)
-library(ggplot2)
-library(RColorBrewer)
-library(stringr)
-library(scales)
-library(MARSS)
-library(gridExtra)
-library(grid)
-library(sf)
-library(viridis)
+# Load libraries
+suppressPackageStartupMessages({
+  library(dplyr)
+  library(tidyr)
+  library(ggplot2)
+  library(RColorBrewer)
+  library(stringr)
+  library(MARSS)
+  library(gridExtra)
+  library(sf)
+  library(grid)
+})
+
+# Set paths
+DATA_PATH <- "/Users/benjaminmakhlouf/Research_repos/AYK_RunTiming/Analysis_Results/Management_River_Analysis/management_river_analysis_tidy.csv"
+FIGURE_PATH <- "/Users/benjaminmakhlouf/Research_repos/AYK_RunTiming/Analysis_Results/DFA/Figures"
+MAP_PATH <- "/Users/benjaminmakhlouf/Research_repos/AYK_RunTiming/Analysis_Results/DFA/Maps"
+SPATIAL_DATA_PATH <- "/Users/benjaminmakhlouf/Spatial Data/KuskoUSGS_HUC_joined.shp"
+BASIN_PATH <- "/Users/benjaminmakhlouf/Desktop/Research/isoscapes_new/Kusko/Kusko_basin.shp"
 
 # ============================================================================
-# PART 1: DATA LOADING AND PREPARATION
+# 1. DATA PREPARATION
 # ============================================================================
 
-# Load the long format data
-both_ts_long <- read.csv("/Users/benjaminmakhlouf/Research_repos/AYK_RunTiming/Analysis_Results/Management_River_Analysis/management_river_analysis_tidy.csv")
+cat("Loading and preparing data...\n")
 
-# Clean up time variables
-both_ts_long <- both_ts_long %>%
+# Load and clean data
+both_ts_long <- read.csv(DATA_PATH) %>%
   mutate(
     Quartile_Clean = case_when(
       grepl("Q1|1", quartile, ignore.case = TRUE) ~ "Q1",
@@ -34,297 +40,401 @@ both_ts_long <- both_ts_long %>%
       TRUE ~ as.character(quartile)
     ),
     Quartile_Num = case_when(
-      Quartile_Clean == "Q1" ~ 1,
-      Quartile_Clean == "Q2" ~ 2,
-      Quartile_Clean == "Q3" ~ 3,
-      Quartile_Clean == "Q4" ~ 4,
+      Quartile_Clean == "Q1" ~ 1, Quartile_Clean == "Q2" ~ 2,
+      Quartile_Clean == "Q3" ~ 3, Quartile_Clean == "Q4" ~ 4,
       TRUE ~ as.numeric(str_extract(quartile, "\\d"))
     ),
     Time_Continuous = year + (Quartile_Num - 1) * 0.25,
     Time_Period = paste0(year, "_", Quartile_Clean)
   )
 
-# ============================================================================
-# PART 2: VISUALIZATION OF RAW DATA
-# ============================================================================
+# Add Q0 entries (set to 0 before all Q1s)
+q0_entries <- both_ts_long %>%
+  select(mgmt_river, year) %>%
+  distinct() %>%
+  mutate(
+    quartile = "Q0",
+    Quartile_Clean = "Q0",
+    Quartile_Num = 0,
+    Time_Continuous = year - 0.25,
+    Time_Period = paste0(year, "_Q0"),
+    total_run_prop = 0
+  )
 
-# Create color palette for rivers
-mgmt_rivers <- unique(both_ts_long$mgmt_river)
+# Add missing columns with appropriate defaults
+missing_cols <- setdiff(names(both_ts_long), names(q0_entries))
+for(col in missing_cols) {
+  if(is.numeric(both_ts_long[[col]])) {
+    q0_entries[[col]] <- 0
+  } else {
+    q0_entries[[col]] <- NA
+  }
+}
+
+# Combine data
+both_ts_long_with_q0 <- bind_rows(both_ts_long, q0_entries) %>%
+  arrange(mgmt_river, year, Quartile_Num)
+
+cat(sprintf("Original data: %d rows | With Q0: %d rows | Added: %d Q0 entries\n", 
+            nrow(both_ts_long), nrow(both_ts_long_with_q0), nrow(q0_entries)))
+
+# Filter valid data
+proportion_total_data <- both_ts_long_with_q0 %>%
+  filter(!is.na(total_run_prop))
+
+# Define river colors
+mgmt_rivers <- unique(proportion_total_data$mgmt_river)
 n_rivers <- length(mgmt_rivers)
-
-if(n_rivers <= 11) {
-  river_colors <- RColorBrewer::brewer.pal(max(3, n_rivers), "Spectral")
+river_colors <- if (n_rivers <= 11) {
+  brewer.pal(max(3, n_rivers), "Spectral")
 } else {
-  river_colors <- colorRampPalette(RColorBrewer::brewer.pal(11, "Spectral"))(n_rivers)
+  colorRampPalette(brewer.pal(11, "Spectral"))(n_rivers)
 }
 names(river_colors) <- mgmt_rivers
 
-# Plot 1: Total Run Proportion over time
-total_run_data <- both_ts_long %>%
-  filter(!is.na(total_run_prop), total_run_prop > 0)
-
-p1 <- ggplot(total_run_data, aes(x = Time_Continuous, y = total_run_prop, color = mgmt_river)) +
+# Plot
+p1 <- ggplot(proportion_total_data, aes(x = Time_Continuous, y = total_run_prop, color = mgmt_river)) +
   geom_line(linewidth = 1.2, alpha = 0.8) +
   geom_point(size = 2.5, alpha = 0.9) +
   scale_color_manual(values = river_colors) +
-  scale_x_continuous(breaks = unique(total_run_data$year)) +
+  scale_x_continuous(breaks = unique(proportion_total_data$year)) +
   scale_y_continuous(labels = scales::percent_format(scale = 1), limits = c(0, NA)) +
   labs(
-    title = "Total Run Proportion by Management River Over Time",
-    subtitle = "Percentage of entire watershed run from each management river by quartile",
-    x = "Year (with quarterly increments)",
-    y = "Proportion of Total Watershed Run (%)",
+    title = "Proportion of Total by Management River Over Time",
+    x = "Year (Quarterly)",
+    y = "Proportion of Total (%)",
     color = "Management River"
   ) +
-  theme_minimal() +
-  theme(
-    legend.position = "bottom",
-    legend.title = element_text(face = "bold"),
-    plot.title = element_text(size = 14, face = "bold"),
-    panel.grid.minor.x = element_blank()
-  ) +
-  guides(color = guide_legend(ncol = min(3, ceiling(n_rivers/2))))
+  theme_minimal(base_size = 13) +
+  theme(legend.position = "bottom")
 
-# Plot 2: Within-Quartile Proportion over time
-within_quartile_data <- both_ts_long %>%
-  filter(!is.na(within_quartile_prop), within_quartile_prop > 0)
-
-p2 <- ggplot(within_quartile_data, aes(x = Time_Continuous, y = within_quartile_prop, color = mgmt_river)) +
-  geom_line(linewidth = 1.2, alpha = 0.8) +
-  geom_point(size = 2.5, alpha = 0.9) +
-  scale_color_manual(values = river_colors) +
-  scale_x_continuous(breaks = unique(within_quartile_data$year)) +
-  scale_y_continuous(labels = scales::percent_format(scale = 1), limits = c(0, NA)) +
-  labs(
-    title = "Within-Quartile Proportion by Management River Over Time",
-    subtitle = "Proportion of each quartile's production from each management river",
-    x = "Year (with quarterly increments)",
-    y = "Proportion of Quartile (%)",
-    color = "Management River"
-  ) +
-  theme_minimal() +
-  theme(
-    legend.position = "bottom",
-    legend.title = element_text(face = "bold"),
-    plot.title = element_text(size = 14, face = "bold"),
-    panel.grid.minor.x = element_blank()
-  ) +
-  guides(color = guide_legend(ncol = min(3, ceiling(n_rivers/2))))
-
-# Save the initial visualization plots to Figures directory
-ggsave(file.path("/Users/benjaminmakhlouf/Research_repos/AYK_RunTiming/Analysis_Results/DFA/Figures", 
-                 "total_run_proportion_timeseries.png"), 
-       p1, width = 12, height = 8, dpi = 300, bg = "white")
-
-ggsave(file.path("/Users/benjaminmakhlouf/Research_repos/AYK_RunTiming/Analysis_Results/DFA/Figures", 
-                 "within_quartile_proportion_timeseries.png"), 
-       p2, width = 12, height = 8, dpi = 300, bg = "white")
-
+# Save and print
+ggsave(file.path(FIGURE_PATH, "total_run_prop_timeseries.png"), 
+       p1, width = 10, height = 6, dpi = 300, bg = "white")
 print(p1)
-print(p2)
+
 
 # ============================================================================
-# PART 3: PREPARE DATA FOR DFA - TOTAL RUN PROPORTION
+# 3. PREPARE DATA MATRIX
 # ============================================================================
 
-cat("\n=== PREPARING TOTAL RUN PROPORTION DATA FOR DFA ===\n")
+cat("Preparing data matrix for DFA...\n")
 
-# Convert to wide format for DFA (rivers as rows, time periods as columns)
-total_run_wide <- both_ts_long %>%
+# First, remove Johnson
+both_ts_long_with_q0 <- both_ts_long_with_q0 %>%
+  filter(mgmt_river != "Johnson")
+
+# Convert to wide format
+proportion_total_wide <- both_ts_long_with_q0 %>%
   filter(!is.na(total_run_prop)) %>%
   select(mgmt_river, Time_Period, total_run_prop) %>%
-  pivot_wider(
-    names_from = Time_Period, 
-    values_from = total_run_prop, 
-    values_fill = 0
+  pivot_wider(names_from = Time_Period, values_from = total_run_prop, values_fill = 0)
+
+# Convert to matrix
+river_names <- proportion_total_wide$mgmt_river
+proportion_total_matrix <- as.matrix(proportion_total_wide[, -1])
+rownames(proportion_total_matrix) <- river_names
+
+# Remove rivers with zero production or variance
+row_sums <- rowSums(proportion_total_matrix, na.rm = TRUE)
+row_vars <- apply(proportion_total_matrix, 1, var, na.rm = TRUE)
+good_rivers <- which(row_sums > 0 & row_vars > 1e-10 & !is.na(row_vars))
+proportion_total_matrix_clean <- proportion_total_matrix[good_rivers, ]
+
+# Scale data to 0-1 range
+proportion_total_matrix_scaled <- t(apply(proportion_total_matrix_clean, 1, function(x) {
+  x_min <- min(x, na.rm = TRUE)
+  x_max <- max(x, na.rm = TRUE)
+  if(x_max == x_min) return(rep(0.5, length(x)))
+  return((x - x_min) / (x_max - x_min))
+}))
+
+# Store scaling parameters
+scaling_params <- data.frame(
+  river = rownames(proportion_total_matrix_clean),
+  min_val = apply(proportion_total_matrix_clean, 1, min, na.rm = TRUE),
+  max_val = apply(proportion_total_matrix_clean, 1, max, na.rm = TRUE)
+)
+
+cat(sprintf("Final data: %d rivers x %d time periods\n", 
+            nrow(proportion_total_matrix_scaled), ncol(proportion_total_matrix_scaled)))
+cat("Data range after scaling: [", round(min(proportion_total_matrix_scaled, na.rm = TRUE), 3), 
+    ", ", round(max(proportion_total_matrix_scaled, na.rm = TRUE), 3), "]\n")
+
+# Create faceted plot of scaled data
+scaled_data_long <- proportion_total_matrix_scaled %>%
+  as.data.frame() %>%
+  mutate(mgmt_river = rownames(.)) %>%
+  pivot_longer(cols = -mgmt_river, names_to = "time_period", values_to = "scaled_value") %>%
+  mutate(
+    year = as.numeric(str_extract(time_period, "\\d{4}")),
+    quarter = str_extract(time_period, "Q\\d"),
+    time_numeric = case_when(
+      quarter == "Q0" ~ year - 0.25,
+      quarter == "Q1" ~ year + 0.00,
+      quarter == "Q2" ~ year + 0.25,
+      quarter == "Q3" ~ year + 0.50,
+      quarter == "Q4" ~ year + 0.75
+    )
   )
 
-# Convert to matrix format for MARSS
-river_names <- total_run_wide$mgmt_river
-total_run_matrix <- as.matrix(total_run_wide[, -1])
-rownames(total_run_matrix) <- river_names
+p_scaled <- ggplot(scaled_data_long, aes(x = time_numeric, y = scaled_value)) +
+  geom_line(color = "steelblue", linewidth = 0.8) +
+  geom_point(color = "steelblue", size = 1.5, alpha = 0.7) +
+  facet_wrap(~mgmt_river, scales = "free_y", ncol = 3) +
+  scale_x_continuous(breaks = unique(scaled_data_long$year)) +
+  labs(
+    title = "Scaled Total Run Proportion Data by Management River",
+    subtitle = "Data scaled to 0-1 range for each river",
+    x = "Year-Quarter",
+    y = "Scaled Value (0-1)"
+  ) +
+  theme_minimal() +
+  theme(
+    axis.text.x = element_text(angle = 45, hjust = 1, size = 8),
+    strip.text = element_text(face = "bold", size = 9),
+    panel.grid.minor = element_blank()
+  )
 
-# Check for rivers with zero or near-zero production
-row_sums <- rowSums(total_run_matrix, na.rm = TRUE)
-row_vars <- apply(total_run_matrix, 1, var, na.rm = TRUE)
-
-# Remove rivers with zero production or zero variance
-good_rivers <- which(row_sums > 0 & row_vars > 1e-10 & !is.na(row_vars))
-total_run_matrix_clean <- total_run_matrix[good_rivers, ]
-
+ggsave(file.path(FIGURE_PATH, "scaled_data_faceted_plot.png"), 
+       p_scaled, width = 12, height = 10, dpi = 300, bg = "white")
+print(p_scaled)
 # ============================================================================
-# PART 3: FIT DFA MODEL
-# ============================================================================
-
-cat("\n=== FITTING DFA MODEL ===\n")
-
-# Set up model parameters
-model.list <- list(m = 3, R = "diagonal and equal")
-
-# Fit DFA model
-dfa_1 <- MARSS(total_run_matrix_clean,
-               model = model.list,
-               z.score = TRUE,
-               form = "dfa",
-               control = list(maxit = 50000),
-               method = "BFGS")
-
-# ============================================================================
-# PART 4: MODEL EVALUATION - RMSE AND CROSS-VALIDATION
+# 4. DFA MODEL COMPARISON Covariates vs no 
 # ============================================================================
 
-# Function to get DFA fitted values
-get_DFA_fits <- function(MLEobj, dd = NULL, alpha = 0.05) {
-  fits <- list()
-  Ey <- MARSS:::MARSShatyt(MLEobj)
-  ZZ <- coef(MLEobj, type = "matrix")$Z
-  H_inv <- varimax(ZZ)$rotmat
-  
-  if (!is.null(dd)) {
-    DD <- coef(MLEobj, type = "matrix")$D
-    fits$ex <- ZZ %*% H_inv %*% MLEobj$states + DD %*% dd
-  } else {
-    fits$ex <- ZZ %*% H_inv %*% MLEobj$states
-  }
-  
-  VtT <- MARSSkfss(MLEobj)$VtT
-  VV <- NULL
-  for (tt in 1:ncol(fits$ex)) {
-    RZVZ <- coef(MLEobj, type = "matrix")$R - ZZ %*% VtT[, , tt] %*% t(ZZ)
-    SS <- Ey$yxtT[, , tt] - Ey$ytT[, tt, drop = FALSE] %*% 
-      t(MLEobj$states[, tt, drop = FALSE])
-    VV <- cbind(VV, diag(RZVZ + SS %*% t(ZZ) + ZZ %*% t(SS)))
-  }
-  SE <- sqrt(VV)
-  fits$up <- qnorm(1 - alpha/2) * SE + fits$ex
-  fits$lo <- qnorm(alpha/2) * SE + fits$ex
-  return(fits)
-}
+# Reshape to wide format (columns = Year_Quartile, value = cpue_prop_in_quartile)
+cpue_wide <- both_ts_long_with_q0 %>%
+  mutate(year_q = paste0(year, "_", quartile)) %>%
+  select(year_q, cpue_prop_in_quartile) %>%
+  distinct() %>%
+  pivot_wider(names_from = year_q, values_from = cpue_prop_in_quartile)
 
-# Calculate RMSE function
-calculate_rmse <- function(dfa_model, data_matrix, holdout_cols = NULL) {
-  fitted_values <- get_DFA_fits(dfa_model)$ex
-  observed_zscore <- (data_matrix - rowMeans(data_matrix, na.rm = TRUE)) / 
-    apply(data_matrix, 1, sd, na.rm = TRUE)
-  
-  if (!is.null(holdout_cols)) {
-    # Calculate RMSE only for held-out columns
-    residuals <- observed_zscore[, holdout_cols] - fitted_values[, holdout_cols]
-  } else {
-    # Calculate RMSE for all data
-    residuals <- observed_zscore - fitted_values
-  }
-  
-  rmse <- sqrt(mean(residuals^2, na.rm = TRUE))
-  return(rmse)
-}
+# Convert to 1-row matrix
+cpue_cov <- as.matrix(cpue_wide)
 
-# Cross-validation function
-dfa_cross_validation <- function(data_matrix, fold_size = 4, m = 3, R = "diagonal and equal") {
-  n_cols <- ncol(data_matrix)
-  n_folds <- ceiling(n_cols / fold_size)
-  rmse_values <- numeric(n_folds)
+runsize_data<- read.csv("/Users/benjaminmakhlouf/Research_repos/AYK_RunTiming/Data/Escapements_runsize.csv")
+
+runsize_data <- runsize_data[rep(1:nrow(runsize_data), each = 5), ]  # 5 for Q0, Q1, Q2, Q3, Q4
+
+runsize_cov <- matrix(runsize_data$Total.Run, nrow = 1)
+
+all_covariates <- rbind(cpue_cov, runsize_cov)
+
+# Z-score normalize covariates
+cpue_cov <- scale(t(cpue_cov))
+cpue_cov <- t(cpue_cov)
+
+runsize_cov <- scale(t(runsize_cov))
+runsize_cov <- t(runsize_cov)
+
+all_covariates <- rbind(cpue_cov, runsize_cov)
+
+# Fit a 4-state DFA model with all covariates
+
+all_cvs <- MARSS(proportion_total_matrix_scaled,
+                 model = list(m = 4, R = "diagonal and unequal"),
+                 z.score = TRUE,
+                 form = "dfa",
+                 control = list(maxit = 50000), 
+                 method = "BFGS", 
+                 covariates = all_covariates,
+                 silent = TRUE)
+
+cpue_only <- MARSS(proportion_total_matrix_scaled,
+                   model = list(m = 4, R = "diagonal and unequal"),
+                   z.score = TRUE,
+                   form = "dfa",
+                   control = list(maxit = 50000), 
+                   method = "BFGS", 
+                   covariates = cpue_cov,
+                   silent = TRUE)
+
+runsize_only <- MARSS(proportion_total_matrix_scaled,
+                      model = list(m = 4, R = "diagonal and unequal"),
+                      z.score = TRUE,
+                      form = "dfa",
+                      control = list(maxit = 50000), 
+                      method = "BFGS", 
+                      covariates = runsize_cov,
+                      silent = TRUE)
+
+no_covariates <- MARSS(proportion_total_matrix_scaled,
+                       model = list(m = 4, R = "diagonal and equal"),
+                       z.score = TRUE,
+                       form = "dfa",
+                       control = list(maxit = 50000), 
+                       method = "BFGS",
+                       silent = TRUE)
+
+# Extract and compare aic 
+aic_values <- c(
+  all_cvs = all_cvs$AIC,
+  cpue_only = cpue_only$AIC,
+  runsize_only = runsize_only$AIC,
+  no_covariates = no_covariates$AIC
+)
+
+# Print the AIC values
+print(aic_values)
+
+# According to AIC, select best model for further analysis
+
+# ============================================================================
+# 4. DFA MODEL COMPARISON (1-4 STATES)
+# ============================================================================
+
+cat("\n=== COMPARING DFA MODELS (1-4 STATES) ===\n")
+
+# Initialize results storage
+model_results <- data.frame(
+  states = 1:4,
+  rmse = numeric(4),
+  aic = numeric(4),
+  aicc = numeric(4),
+  loglik = numeric(4),
+  converged = logical(4)
+)
+
+# Test each model
+for(m_states in 1:4) {
+  cat(sprintf("Fitting %d-state model...\n", m_states))
   
-  cat(sprintf("\n=== CROSS-VALIDATION ===\n"))
-  cat(sprintf("Running %d folds with %d columns per fold\n", n_folds, fold_size))
-  
-  for(fold in 1:n_folds) {
-    start_col <- (fold - 1) * fold_size + 1
-    end_col <- min(fold * fold_size, n_cols)
+  tryCatch({
+    dfa_model <- MARSS(proportion_total_matrix,
+                       model = list(m = m_states, R = "diagonal and unequal"),
+                       z.score = FALSE,
+                       form = "dfa",
+                       control = list(maxit = 50000), 
+                       covariates = cpue_cov,
+                       method = "BFGS", 
+                       silent = TRUE)
     
-    # Create training data with held-out columns as NA
-    train_data <- data_matrix
-    train_data[, start_col:end_col] <- NA
-    
-    tryCatch({
-      # Fit model
-      dfa_fold <- MARSS(train_data, model = list(m = m, R = R), 
-                        z.score = TRUE, form = "dfa", 
-                        control = list(maxit = 50000), method = "BFGS", silent = TRUE)
-      
-      if(dfa_fold$convergence == 0) {
-        rmse_values[fold] <- calculate_rmse(dfa_fold, data_matrix, start_col:end_col)
-        cat(sprintf("Fold %d: RMSE = %.4f\n", fold, rmse_values[fold]))
+    if(dfa_model$convergence == 0) {
+      # Calculate RMSE
+      fitted_values <- if(m_states == 1) {
+        coef(dfa_model, type = "matrix")$Z %*% dfa_model$states
       } else {
-        rmse_values[fold] <- NA
-        cat(sprintf("Fold %d: Failed to converge\n", fold))
+        H_inv <- varimax(coef(dfa_model, type = "matrix")$Z)$rotmat
+        coef(dfa_model, type = "matrix")$Z %*% H_inv %*% dfa_model$states
       }
-    }, error = function(e) {
-      rmse_values[fold] <- NA
-      cat(sprintf("Fold %d: Error\n", fold))
-    })
-  }
-  
-  return(rmse_values[!is.na(rmse_values)])
+      rmse <- sqrt(mean((proportion_total_matrix - fitted_values)^2, na.rm = TRUE))
+      
+      # Store results
+      model_results[m_states, ] <- list(
+        states = m_states,
+        rmse = rmse,
+        aic = dfa_model$AIC,
+        aicc = dfa_model$AICc,
+        loglik = dfa_model$logLik,
+        converged = TRUE
+      )
+      
+      cat(sprintf("  RMSE: %.4f | AICc: %.2f\n", rmse, dfa_model$AICc))
+      
+    } else {
+      model_results[m_states, "converged"] <- FALSE
+      cat("  Model did not converge\n")
+    }
+    
+  }, error = function(e) {
+    model_results[m_states, "converged"] <- FALSE
+    cat(sprintf("  Error: %s\n", e$message))
+  })
 }
 
-# Calculate full model RMSE
-model_rmse <- calculate_rmse(dfa_1, total_run_matrix_clean)
+# Display results
+cat("\n=== MODEL COMPARISON RESULTS ===\n")
+print(model_results[model_results$converged, ])
 
-# Run cross-validation
-cv_rmse_values <- dfa_cross_validation(total_run_matrix_clean, fold_size = 4, m = 3)
-cv_rmse <- mean(cv_rmse_values)
-
-# Print results
-cat("\n=== MODEL EVALUATION RESULTS ===\n")
-cat(sprintf("Full Model RMSE: %.4f\n", model_rmse))
-cat(sprintf("Cross-Validated RMSE: %.4f (±%.4f)\n", cv_rmse, sd(cv_rmse_values)))
-cat(sprintf("AIC: %.2f | AICc: %.2f | Log-likelihood: %.2f\n", 
-            dfa_1$AIC, dfa_1$AICc, dfa_1$logLik))
-
-
-
-
-
+# Select best model
+best_n_states <- 3
+cat(sprintf("\nUsing %d-state model for final analysis\n", best_n_states))
 
 # ============================================================================
-# PART 5: FIT BEST DFA MODEL - TOTAL RUN PROPORTION
+# 4. DFA MODEL COMPARISON Different variance structures
 # ============================================================================
 
-cat("\n=== FITTING BEST DFA MODEL FOR TOTAL RUN PROPORTION ===\n")
+r_equal <- MARSS(proportion_total_matrix,
+                 model = list(m = 2, R = "diagonal and equal"),
+                 z.score = TRUE,
+                 form = "dfa",
+                 control = list(maxit = 50000), 
+                 method = "BFGS",
+                 silent = TRUE)
 
-best_model_total <- suppressMessages(suppressWarnings(
-  MARSS(total_run_matrix_clean,
-        model = list(m = best_m_total, R = "diagonal and equal"),
-        z.score = TRUE,
-        form = "dfa", 
-        control = list(maxit = 50000), 
-        method = "BFGS")
-))
 
-# Extract original trends and loadings
+r_diagonal <- MARSS(proportion_total_matrix,
+                    model = list(m = 2, R = "diagonal and unequal"),
+                    z.score = TRUE,
+                    form = "dfa",
+                    control = list(maxit = 50000), 
+                    method = "BFGS",
+                    silent = TRUE)
+
+
+# Extract and compare AIC values
+aic_values_variance <- c(
+  r_equal = r_equal$AIC,
+  r_diagonal = r_diagonal$AIC
+)
+
+print(aic_values_variance)
+
+# ============================================================================
+# 5. FIT BEST DFA MODEL
+## no covariates 
+## 2 state model 
+## diagonal and unequal variance structure (based on your within quartile results)
+# ============================================================================
+
+best_model_total<- MARSS(proportion_total_matrix,
+                         model = list(m = 2, R = "diagonal and unequal"),
+                         z.score = FALSE,
+                         form = "dfa", 
+                         covariates = cpue_cov,
+                         control = list(maxit = 50000), 
+                         method = "BFGS")
+
+# Extract and rotate results
 trends_total_orig <- best_model_total$states
 Z_total_orig <- coef(best_model_total, type = "matrix")$Z
 
-# Apply varimax rotation for better interpretation
-cat("Applying varimax rotation for clearer interpretation...\n")
+# Apply varimax rotation
+cat("Applying varimax rotation...\n")
 varimax_result_total <- varimax(Z_total_orig)
 H_inv_total <- varimax_result_total$rotmat
 
 # Rotate loadings and trends
 Z_total <- Z_total_orig %*% H_inv_total
 trends_total <- solve(H_inv_total) %*% trends_total_orig
-colnames(Z_total) <- paste("Trend", 1:best_m_total)
+colnames(Z_total) <- paste("Trend", 1:2)
 
-# Create time labels for plotting
-years <- rep(2017:2021, each = 4)
-quarters <- rep(1:4, times = 5)
+# ============================================================================
+# 6. CREATE TIME LABELS
+# ============================================================================
+
+# Create time labels including Q0
+years <- rep(2017:2021, each = 5)  # 5 quarters per year (Q0, Q1, Q2, Q3, Q4)
+quarters <- rep(0:4, times = 5)
 time_labels <- paste0(years, "-Q", quarters)
+time_labels_used <- time_labels[1:ncol(trends_total)]
 
 # ============================================================================
-# PART 6: PLOT DFA RESULTS - TOTAL RUN PROPORTION
+# 7. PLOT DFA RESULTS
 # ============================================================================
 
-cat("\n=== PLOTTING DFA RESULTS FOR TOTAL RUN PROPORTION ===\n")
-
-for (i in 1:best_m_total) {
-  # Trend time series
+for (i in 1:2) {
+  cat(sprintf("Creating plots for Trend %d...\n", i))
+  
+  # Trend time series data
   trend_data <- data.frame(
     time = 1:ncol(trends_total),
     value = trends_total[i, ],
-    time_label = time_labels[1:ncol(trends_total)]
+    time_label = time_labels_used
   )
   
+  # Trend plot
   trend_plot <- ggplot(trend_data, aes(x = time, y = value)) +
     geom_line(color = "steelblue", linewidth = 1.2) +
     geom_point(color = "steelblue", size = 2) +
@@ -337,10 +447,11 @@ for (i in 1:best_m_total) {
       axis.text.x = element_text(angle = 45, hjust = 1, size = 8)
     )
   
-  # Loadings for this trend
+  # Loadings data
   loading_data <- data.frame(Unit = rownames(Z_total), Loading = Z_total[, i]) %>%
     arrange(desc(abs(Loading)))
   
+  # Loadings plot
   loadings_plot <- ggplot(loading_data, aes(x = reorder(Unit, Loading), 
                                             y = Loading, fill = Loading > 0)) +
     geom_col() +
@@ -356,408 +467,142 @@ for (i in 1:best_m_total) {
       legend.position = "bottom"
     )
   
-  # Display combined plot
+  # Combine and save
   combined_plot <- grid.arrange(trend_plot, loadings_plot, ncol = 2, 
                                 top = paste("TOTAL RUN PROPORTION - TREND", i))
   
-  # Save the plot to Figures directory
-  ggsave(file.path("/Users/benjaminmakhlouf/Research_repos/AYK_RunTiming/Analysis_Results/DFA/Figures", 
-                   paste0("total_run_proportion_trend_", i, "_plot.png")), 
+  ggsave(file.path(FIGURE_PATH, paste0("total_run_proportion_trend_", i, "_plot.png")), 
          combined_plot, width = 12, height = 6, dpi = 300, bg = "white")
   
   print(combined_plot)
 }
 
 # ============================================================================
-# PART 7: PREPARE DATA FOR DFA - WITHIN-QUARTILE PROPORTION
+# 8. CREATE SPATIAL MAPS
 # ============================================================================
 
-cat("\n=== PREPARING WITHIN-QUARTILE PROPORTION DATA FOR DFA ===\n")
+cat("\n=== CREATING SPATIAL MAPS ===\n")
 
-# Convert to wide format for DFA (rivers as rows, time periods as columns)
-within_quartile_wide <- both_ts_long %>%
-  filter(!is.na(within_quartile_prop)) %>%
-  select(mgmt_river, Time_Period, within_quartile_prop) %>%
-  pivot_wider(
-    names_from = Time_Period, 
-    values_from = within_quartile_prop, 
-    values_fill = 0
-  )
-
-# Convert to matrix format for MARSS
-river_names_wq <- within_quartile_wide$mgmt_river
-within_quartile_matrix <- as.matrix(within_quartile_wide[, -1])
-rownames(within_quartile_matrix) <- river_names_wq
-
-# Check for rivers with zero or near-zero production
-row_sums_wq <- rowSums(within_quartile_matrix, na.rm = TRUE)
-row_vars_wq <- apply(within_quartile_matrix, 1, var, na.rm = TRUE)
-
-# Remove rivers with zero production or zero variance
-good_rivers_wq <- which(row_sums_wq > 0 & row_vars_wq > 1e-10 & !is.na(row_vars_wq))
-within_quartile_matrix_clean <- within_quartile_matrix[good_rivers_wq, ]
-
-
-# ============================================================================
-# PART 8: DFA MODEL SELECTION - WITHIN-QUARTILE PROPORTION
-# ============================================================================
-
-cat("\n=== RUNNING DFA MODEL SELECTION FOR WITHIN-QUARTILE PROPORTION ===\n")
-
-aic_results_within <- data.frame(
-  states = 1:min(4, nrow(within_quartile_matrix_clean)),
-  AICc = numeric(min(4, nrow(within_quartile_matrix_clean))),
-  stringsAsFactors = FALSE
-)
-
-for (m in 1:min(4, nrow(within_quartile_matrix_clean))) {
-  cat("Fitting model with", m, "trends...\n")
-  
-  model.list <- list(m = m, R = "diagonal and equal")
-  
-  model <- suppressMessages(suppressWarnings(
-    MARSS(within_quartile_matrix_clean,
-          model = model.list,
-          z.score = TRUE,
-          form = "dfa",
-          control = list(maxit = 50000),
-          method = "BFGS")
-  ))
-  
-  aic_results_within$AICc[m] <- model$AICc
-}
-
-# Calculate delta AICc
-aic_results_within$Delta_AICc <- aic_results_within$AICc - min(aic_results_within$AICc, na.rm = TRUE)
-# Find best model
-best_m_within <- which.min(aic_results_within$AICc)
-
-# ============================================================================
-# PART 9: FIT BEST DFA MODEL - WITHIN-QUARTILE PROPORTION
-# ============================================================================
-
-cat("\n=== FITTING BEST DFA MODEL FOR WITHIN-QUARTILE PROPORTION ===\n")
-
-best_model_within <- suppressMessages(suppressWarnings(
-  MARSS(within_quartile_matrix_clean,
-        model = list(m = best_m_within, R = "diagonal and equal"),
-        z.score = TRUE,
-        form = "dfa", 
-        control = list(maxit = 50000), 
-        method = "BFGS")
-))
-
-# Extract original trends and loadings
-trends_within_orig <- best_model_within$states
-Z_within_orig <- coef(best_model_within, type = "matrix")$Z
-
-# Apply varimax rotation for better interpretation
-cat("Applying varimax rotation for clearer interpretation...\n")
-varimax_result_within <- varimax(Z_within_orig)
-H_inv_within <- varimax_result_within$rotmat
-
-# Rotate loadings and trends
-Z_within <- Z_within_orig %*% H_inv_within
-trends_within <- solve(H_inv_within) %*% trends_within_orig
-colnames(Z_within) <- paste("Trend", 1:best_m_within)
-
-# ============================================================================
-# PART 10: PLOT DFA RESULTS - WITHIN-QUARTILE PROPORTION
-# ============================================================================
-
-cat("\n=== PLOTTING DFA RESULTS FOR WITHIN-QUARTILE PROPORTION ===\n")
-
-for (i in 1:best_m_within) {
-  # Trend time series
-  trend_data_wq <- data.frame(
-    time = 1:ncol(trends_within),
-    value = trends_within[i, ],
-    time_label = time_labels[1:ncol(trends_within)]
-  )
-  
-  trend_plot_wq <- ggplot(trend_data_wq, aes(x = time, y = value)) +
-    geom_line(color = "darkgreen", linewidth = 1.2) +
-    geom_point(color = "darkgreen", size = 2) +
-    geom_hline(yintercept = 0, linetype = "dashed", alpha = 0.5) +
-    scale_x_continuous(breaks = trend_data_wq$time, labels = trend_data_wq$time_label) +
-    labs(title = paste("Trend", i, "Time Series"), x = "Year-Quarter", y = "Value") +
-    theme_minimal() +
-    theme(
-      plot.title = element_text(face = "bold", size = 12),
-      axis.text.x = element_text(angle = 45, hjust = 1, size = 8)
-    )
-  
-  # Loadings for this trend
-  loading_data_wq <- data.frame(Unit = rownames(Z_within), Loading = Z_within[, i]) %>%
-    arrange(desc(abs(Loading)))
-  
-  loadings_plot_wq <- ggplot(loading_data_wq, aes(x = reorder(Unit, Loading), 
-                                                  y = Loading, fill = Loading > 0)) +
-    geom_col() +
-    coord_flip() +
-    scale_fill_manual(
-      values = c("FALSE" = "darkgreen", "TRUE" = "orange"),
-      name = "", labels = c("Negative", "Positive")
-    ) +
-    labs(title = paste("Trend", i, "Loadings"), x = "Management Unit", y = "Loading") +
-    theme_minimal() +
-    theme(
-      plot.title = element_text(face = "bold", size = 12), 
-      legend.position = "bottom"
-    )
-  
-  # Display combined plot
-  combined_plot_wq <- grid.arrange(trend_plot_wq, loadings_plot_wq, ncol = 2, 
-                                   top = paste("WITHIN-QUARTILE PROPORTION - TREND", i))
-  
-  # Save the plot to Figures directory
-  ggsave(file.path("/Users/benjaminmakhlouf/Research_repos/AYK_RunTiming/Analysis_Results/DFA/Figures", 
-                   paste0("within_quartile_proportion_trend_", i, "_plot.png")), 
-         combined_plot_wq, width = 12, height = 6, dpi = 300, bg = "white")
-  
-  print(combined_plot_wq)
-}
-
-# ============================================================================
-# PART 11: SUMMARY AND COMPARISON
-# ============================================================================
-
-cat("\n=== ANALYSIS SUMMARY ===\n")
-
-# Create summary comparison
-summary_df <- data.frame(
-  Analysis_Type = c("Total Run Proportion", "Within-Quartile Proportion"),
-  Best_Model_Trends = c(best_m_total, best_m_within),
-  Best_AICc = c(min(aic_results_total$AICc), min(aic_results_within$AICc)),
-  Rivers_Included = c(nrow(total_run_matrix_clean), nrow(within_quartile_matrix_clean)),
-  Time_Points = c(ncol(total_run_matrix_clean), ncol(within_quartile_matrix_clean))
-)
-
-print(summary_df)
-
-cat("\n=== MODEL SELECTION COMPARISON ===\n")
-cat("Total Run Proportion AIC Results:\n")
-print(aic_results_total)
-cat("\nWithin-Quartile Proportion AIC Results:\n")
-print(aic_results_within)
-
-# Save results to files
-cat("\n=== SAVING RESULTS ===\n")
-
-# Create output directories
-figures_dir <- "/Users/benjaminmakhlouf/Research_repos/AYK_RunTiming/Analysis_Results/DFA/Figures"
-maps_dir <- "/Users/benjaminmakhlouf/Research_repos/AYK_RunTiming/Analysis_Results/DFA/Maps"
-results_dir <- "/Users/benjaminmakhlouf/Research_repos/AYK_RunTiming/Analysis_Results/DFA/Results"
-dir.create(figures_dir, showWarnings = FALSE, recursive = TRUE)
-dir.create(maps_dir, showWarnings = FALSE, recursive = TRUE)
-dir.create(results_dir, showWarnings = FALSE, recursive = TRUE)
-
-# Save model selection results
-write.csv(aic_results_total, file.path(results_dir, "total_run_proportion_model_selection.csv"), row.names = FALSE)
-write.csv(aic_results_within, file.path(results_dir, "within_quartile_proportion_model_selection.csv"), row.names = FALSE)
-
-# Save trend data (rotated)
-trends_total_df <- data.frame(
-  Time = time_labels[1:ncol(trends_total)],
-  as.data.frame(t(trends_total))
-)
-colnames(trends_total_df)[-1] <- paste("Trend", 1:best_m_total)
-
-trends_within_df <- data.frame(
-  Time = time_labels[1:ncol(trends_within)],
-  as.data.frame(t(trends_within))
-)
-colnames(trends_within_df)[-1] <- paste("Trend", 1:best_m_within)
-
-write.csv(trends_total_df, file.path(results_dir, "total_run_proportion_trends.csv"), row.names = FALSE)
-write.csv(trends_within_df, file.path(results_dir, "within_quartile_proportion_trends.csv"), row.names = FALSE)
-
-# Save loadings (rotated)
-loadings_total_df <- data.frame(
-  Management_Unit = rownames(Z_total),
-  Z_total
-)
-loadings_within_df <- data.frame(
-  Management_Unit = rownames(Z_within),
-  Z_within
-)
-
-write.csv(loadings_total_df, file.path(results_dir, "total_run_proportion_loadings.csv"), row.names = FALSE)
-write.csv(loadings_within_df, file.path(results_dir, "within_quartile_proportion_loadings.csv"), row.names = FALSE)
-
-cat("Analysis complete! Results saved to CSV files.\n")
-
-# ============================================================================
-# PART 12: CREATE SPATIAL MAPS WITH LOADINGS
-# ============================================================================
-
-cat("\n=== CREATING SPATIAL MAPS WITH LOADINGS ===\n")
-
-# Load spatial data (adjust path as needed)
+# Load spatial data
 tryCatch({
-  # Load the Kusko edges shapefile with management river information
-  edges <- st_read("/Users/benjaminmakhlouf/Spatial Data/KuskoUSGS_HUC_joined.shp", quiet = TRUE)
-  basin <- st_read("/Users/benjaminmakhlouf/Desktop/Research/isoscapes_new/Kusko/Kusko_basin.shp", quiet = TRUE)
+  edges <- st_read(SPATIAL_DATA_PATH, quiet = TRUE)
+  basin <- st_read(BASIN_PATH, quiet = TRUE)
   
-  cat("Loaded spatial data successfully\n")
-  cat("Edges loaded:", nrow(edges), "features\n")
-  cat("Basin loaded:", nrow(basin), "features\n")
+  cat("Spatial data loaded successfully\n")
   
-  # Check if mgmt_river column exists
   if ("mgmt_river" %in% colnames(edges)) {
-    cat("Management river data available\n")
     
-    # Function to create trend and loading maps
-    create_trend_loading_maps <- function(trends_data, Z_matrix, analysis_name, edges_sf, basin_sf) {
+    for (trend_num in 1:best_n_states) {
+      cat(paste("Creating map for Trend", trend_num, "\n"))
       
-      n_trends <- ncol(Z_matrix)
+      # Trend time series plot
+      trend_data <- data.frame(
+        time = 1:length(trends_total[trend_num, ]),
+        value = as.numeric(trends_total[trend_num, ]),
+        time_label = time_labels_used
+      )
       
-      for (trend_num in 1:n_trends) {
-        cat(paste("Creating maps for", analysis_name, "Trend", trend_num, "\n"))
-        
-        # Prepare trend time series data
-        trend_data <- data.frame(
-          time = 1:length(trends_data[trend_num, ]),
-          value = as.numeric(trends_data[trend_num, ]),
-          time_label = time_labels[1:length(trends_data[trend_num, ])]
+      trend_plot <- ggplot(trend_data, aes(x = time, y = value)) +
+        geom_line(color = "steelblue", linewidth = 1.5, alpha = 0.8) +
+        geom_point(color = "steelblue", size = 3, alpha = 0.9) +
+        geom_hline(yintercept = 0, linetype = "dashed", alpha = 0.5) +
+        scale_x_continuous(breaks = trend_data$time, labels = trend_data$time_label) +
+        labs(
+          title = paste("Total Run Proportion - Trend", trend_num, "Time Series"),
+          x = "Year-Quarter", 
+          y = "Trend Value"
+        ) +
+        theme_minimal() +
+        theme(
+          plot.title = element_text(face = "bold", size = 14),
+          axis.text.x = element_text(angle = 45, hjust = 1, size = 10)
         )
-        
-        # Create trend time series plot
-        trend_plot <- ggplot(trend_data, aes(x = time, y = value)) +
-          geom_line(color = "steelblue", linewidth = 1.5, alpha = 0.8) +
-          geom_point(color = "steelblue", size = 3, alpha = 0.9) +
-          geom_hline(yintercept = 0, linetype = "dashed", alpha = 0.5) +
-          scale_x_continuous(breaks = trend_data$time, labels = trend_data$time_label) +
-          labs(
-            title = paste(analysis_name, "- Trend", trend_num, "Time Series"),
-            x = "Year-Quarter", 
-            y = "Trend Value"
-          ) +
-          theme_minimal() +
-          theme(
-            plot.title = element_text(face = "bold", size = 14),
-            axis.text.x = element_text(angle = 45, hjust = 1, size = 10),
-            axis.text.y = element_text(size = 10),
-            axis.title = element_text(size = 12, face = "bold")
-          )
-        
-        # Prepare loadings data
-        loadings_data <- data.frame(
-          mgmt_river = rownames(Z_matrix),
-          loading = Z_matrix[, trend_num],
-          stringsAsFactors = FALSE
+      
+      # Prepare spatial data with loadings
+      loadings_data <- data.frame(
+        mgmt_river = rownames(Z_total),
+        loading = Z_total[, trend_num],
+        stringsAsFactors = FALSE
+      )
+      
+      edges_with_loadings <- edges %>%
+        left_join(loadings_data, by = "mgmt_river") %>%
+        filter(!is.na(mgmt_river) & mgmt_river != "") %>%
+        mutate(
+          stream_order = ifelse(is.na(Str_Order), 3, Str_Order),
+          line_width = pmax(0.3, pmin(3.0, 0.3 + (stream_order - min(stream_order, na.rm = TRUE)) * 
+                                        (3.0 - 0.3) / (max(stream_order, na.rm = TRUE) - min(stream_order, na.rm = TRUE))))
         )
-        
-        # Join loadings with spatial data
-        edges_with_loadings <- edges_sf %>%
-          left_join(loadings_data, by = "mgmt_river") %>%
-          # Only keep edges with management river assignments
-          filter(!is.na(mgmt_river) & mgmt_river != "") %>%
-          # Calculate line width based on stream order (0.3 to 3.0 range)
-          mutate(
-            # Assuming stream order column is named 'Str_Order' - adjust if different
-            stream_order = ifelse(is.na(Str_Order), 3, Str_Order),  # Default to 3 if missing
-            # Scale stream order to line width range (0.3 to 3.0)
-            line_width = pmax(0.3, pmin(3.0, 0.3 + (stream_order - min(stream_order, na.rm = TRUE)) * 
-                                          (3.0 - 0.3) / (max(stream_order, na.rm = TRUE) - min(stream_order, na.rm = TRUE))))
-          )
-        
-        # Create the spatial map
-        if (nrow(edges_with_loadings) > 0) {
-          
-          # Ensure basin and edges have same CRS
-          if (st_crs(basin_sf) != st_crs(edges_with_loadings)) {
-            basin_sf <- st_transform(basin_sf, st_crs(edges_with_loadings))
-          }
-          
-          # Get the range of stream orders for legend
-          stream_order_range <- range(edges_with_loadings$stream_order, na.rm = TRUE)
-          
-          # Create the map
-          map_plot <- ggplot() +
-            # Add basin boundary
-            geom_sf(data = basin_sf, fill = "gray95", color = "gray70", 
-                    linewidth = 0.5, alpha = 0.3) +
-            # Add edges colored by loadings, sized by stream order
-            geom_sf(data = edges_with_loadings, 
-                    aes(color = loading, linewidth = stream_order), 
-                    alpha = 0.8) +
-            # Use diverging color scale (blue to red) for loadings
-            scale_color_gradient2(
-              low = "blue", 
-              mid = "white", 
-              high = "red", 
-              midpoint = 0,
-              name = "Loading\nValue",
-              limits = c(-max(abs(loadings_data$loading)), max(abs(loadings_data$loading))),
-              labels = function(x) sprintf("%.2f", x)
-            ) +
-            # Scale line width by stream order (0.3 to 3.0 range)
-            scale_linewidth_continuous(
-              range = c(0.3, 3.0), 
-              name = "Stream\nOrder",
-              breaks = pretty(stream_order_range, n = 4),
-              labels = function(x) as.character(round(x))
-            ) +
-            coord_sf(datum = NA) +
-            labs(
-              title = paste(analysis_name, "- Trend", trend_num, "Loadings Map"),
-              subtitle = "Rivers colored by loading values (blue = negative, red = positive)",
-              caption = "Line thickness represents stream order (higher order = thicker lines)"
-            ) +
-            theme_void() +
-            theme(
-              plot.title = element_text(face = "bold", size = 14, hjust = 0.5),
-              plot.subtitle = element_text(size = 12, hjust = 0.5),
-              plot.caption = element_text(size = 10, hjust = 0.5),
-              legend.position = "right",
-              legend.title = element_text(face = "bold", size = 10),
-              legend.text = element_text(size = 9),
-              panel.background = element_rect(fill = "white", color = NA),
-              plot.background = element_rect(fill = "white", color = NA)
-            )
-          
-          # Save the combined figure to Maps directory (without displaying)
-          filename <- file.path("/Users/benjaminmakhlouf/Research_repos/AYK_RunTiming/Analysis_Results/DFA/Maps",
-                                paste0(gsub(" ", "_", tolower(analysis_name)), "_trend_", trend_num, "_map.png"))
-          
-          # Create and save the plot without displaying it
-          png(filename, width = 16, height = 8, units = "in", res = 300, bg = "white")
-          grid.arrange(
-            trend_plot, map_plot, 
-            ncol = 2, 
-            widths = c(1, 1.2),
-            top = textGrob(paste(analysis_name, "- Trend", trend_num, "Analysis"), 
-                           gp = gpar(fontsize = 16, fontface = "bold"))
-          )
-          dev.off()
-          cat(paste("Saved:", filename, "\n"))
-          
-        } else {
-          cat(paste("No spatial data available for", analysis_name, "Trend", trend_num, "\n"))
+      
+      # Create spatial map
+      if (nrow(edges_with_loadings) > 0) {
+        if (st_crs(basin) != st_crs(edges_with_loadings)) {
+          basin <- st_transform(basin, st_crs(edges_with_loadings))
         }
+        
+        map_plot <- ggplot() +
+          geom_sf(data = basin, fill = "gray95", color = "gray70", 
+                  linewidth = 0.5, alpha = 0.3) +
+          geom_sf(data = edges_with_loadings, 
+                  aes(color = loading, linewidth = stream_order), 
+                  alpha = 0.8) +
+          scale_color_gradient2(
+            low = "blue", mid = "white", high = "red", midpoint = 0,
+            name = "Loading\nValue",
+            limits = c(-max(abs(loadings_data$loading)), max(abs(loadings_data$loading)))
+          ) +
+          scale_linewidth_continuous(
+            range = c(0.3, 3.0), 
+            name = "Stream\nOrder"
+          ) +
+          coord_sf(datum = NA) +
+          labs(
+            title = paste("Total Run Proportion - Trend", trend_num, "Loadings Map"),
+            subtitle = "Rivers colored by loading values (blue = negative, red = positive)"
+          ) +
+          theme_void() +
+          theme(
+            plot.title = element_text(face = "bold", size = 14, hjust = 0.5),
+            plot.subtitle = element_text(size = 12, hjust = 0.5),
+            legend.position = "right",
+            panel.background = element_rect(fill = "white", color = NA),
+            plot.background = element_rect(fill = "white", color = NA)
+          )
+        
+        # Save combined map
+        filename <- file.path(MAP_PATH, paste0("total_run_proportion_trend_", trend_num, "_map.png"))
+        
+        png(filename, width = 16, height = 8, units = "in", res = 300, bg = "white")
+        grid.arrange(
+          trend_plot, map_plot, 
+          ncol = 2, 
+          widths = c(1, 1.2),
+          top = textGrob(paste("Total Run Proportion - Trend", trend_num, "Analysis"), 
+                         gp = gpar(fontsize = 16, fontface = "bold"))
+        )
+        dev.off()
+        
+        cat(paste("Saved:", filename, "\n"))
       }
     }
     
-    # Create maps for Total Run Proportion analysis
-    cat("\nCreating Total Run Proportion maps...\n")
-    create_trend_loading_maps(trends_total, Z_total, "Total Run Proportion", edges, basin)
-    
-    # Create maps for Within-Quartile Proportion analysis  
-    cat("\nCreating Within-Quartile Proportion maps...\n")
-    create_trend_loading_maps(trends_within, Z_within, "Within-Quartile Proportion", edges, basin)
-    
-    cat("\nAll spatial maps created successfully!\n")
-    
   } else {
     cat("Warning: mgmt_river column not found in spatial data\n")
-    cat("Available columns:", paste(colnames(edges), collapse = ", "), "\n")
   }
   
 }, error = function(e) {
   cat("Error loading spatial data:", e$message, "\n")
-  cat("Spatial maps will be skipped\n")
 })
 
-cat("\n=== COMPLETE ANALYSIS WITH VARIMAX ROTATION FINISHED ===\n")
-cat("Note: All results use varimax-rotated loadings for optimal interpretation.\n")
+# ============================================================================
+# 9. SUMMARY
+# ============================================================================
+
+cat("\n=== ANALYSIS COMPLETE ===\n")
+cat("✓ Data prepared with Q0 entries\n")
+cat("✓ DFA models compared (1-4 states)\n")
+cat(sprintf("✓ Best model fitted (%d states)\n", best_n_states))
+cat("✓ Varimax rotation applied\n")
+cat("✓ Trend plots created\n")
+cat("✓ Spatial maps generated\n")
+cat("\nAll results saved to specified directories.\n")
