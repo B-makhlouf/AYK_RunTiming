@@ -469,39 +469,63 @@ time_labels <- paste0(years, "-Q", quarters)
 time_labels_used <- time_labels[1:ncol(trends_within)]
 
 # ============================================================================
-# 7. PLOT DFA RESULTS
+# 7. PLOT DFA RESULTS WITH QUARTILE-COLORED POINTS
 # ============================================================================
 
-cat("\n=== CREATING DFA PLOTS ===\n")
+cat("\n=== CREATING DFA PLOTS WITH QUARTILE COLORS ===\n")
+
+# Define sequential colors for quartiles (blue to orange to red progression)
+quartile_colors <- c(
+  "Q0" = "#08519C",  # Dark blue (starting point)
+  "Q1" = "#3182BD",  # Medium blue
+  "Q2" = "#FD8D3C",  # Orange
+  "Q3" = "#E6550D",  # Dark orange
+  "Q4" = "#A63603"   # Red-brown
+)
 
 for (i in 1:best_n_states) {
   cat(sprintf("Creating plots for Trend %d...\n", i))
   
-  # Trend time series data
+  # Extract quartile information from time labels
   trend_data <- data.frame(
     time = 1:ncol(trends_within),
     value = trends_within[i, ],
     time_label = time_labels_used
-  )
+  ) %>%
+    mutate(
+      quartile = str_extract(time_label, "Q[0-4]"),
+      year = str_extract(time_label, "\\d{4}")
+    )
   
-  # Trend plot
+  # Trend plot with quartile-colored points and grey line
   trend_plot <- ggplot(trend_data, aes(x = time, y = value)) +
-    geom_line(color = "steelblue", linewidth = 1.2) +
-    geom_point(color = "steelblue", size = 2) +
+    geom_line(color = "grey60", linewidth = 1.2, alpha = 0.8) +
+    geom_point(aes(color = quartile), size = 3, alpha = 0.9) +
     geom_hline(yintercept = 0, linetype = "dashed", alpha = 0.5) +
+    scale_color_manual(
+      values = quartile_colors,
+      name = "Quartile",
+      labels = c("Q0" = "Q0 (Start)", "Q1" = "Q1", "Q2" = "Q2", "Q3" = "Q3", "Q4" = "Q4")
+    ) +
     scale_x_continuous(breaks = trend_data$time, labels = trend_data$time_label) +
-    labs(title = paste("Trend", i, "Time Series"), x = "Year-Quarter", y = "Value") +
+    labs(
+      title = paste("Trend", i, "Time Series"), 
+      x = "Year-Quarter", 
+      y = "Value"
+    ) +
     theme_minimal() +
     theme(
       plot.title = element_text(face = "bold", size = 12),
-      axis.text.x = element_text(angle = 45, hjust = 1, size = 8)
-    )
+      axis.text.x = element_text(angle = 45, hjust = 1, size = 8),
+      legend.position = "bottom"
+    ) +
+    guides(color = guide_legend(override.aes = list(size = 4)))
   
-  # Loadings data
+  # Loadings data (unchanged)
   loading_data <- data.frame(Unit = rownames(Z_within), Loading = Z_within[, i]) %>%
     arrange(desc(abs(Loading)))
   
-  # Loadings plot
+  # Loadings plot (unchanged)
   loadings_plot <- ggplot(loading_data, aes(x = reorder(Unit, Loading), 
                                             y = Loading, fill = Loading > 0)) +
     geom_col() +
@@ -522,16 +546,16 @@ for (i in 1:best_n_states) {
                                 top = paste("WITHIN QUARTILE PROPORTION - TREND", i))
   
   ggsave(file.path(FIGURE_PATH, paste0("within_quartile_proportion_trend_", i, "_plot.png")), 
-         combined_plot, width = 12, height = 6, dpi = 300, bg = "white")
+         combined_plot, width = 14, height = 6, dpi = 300, bg = "white")
   
   print(combined_plot)
 }
 
 # ============================================================================
-# 8. CREATE SPATIAL MAPS
+# 8. CREATE SPATIAL MAPS WITH QUARTILE-COLORED TREND PLOTS
 # ============================================================================
 
-cat("\n=== CREATING SPATIAL MAPS ===\n")
+cat("\n=== CREATING SPATIAL MAPS WITH QUARTILE-COLORED TRENDS ===\n")
 
 # Load spatial data
 tryCatch({
@@ -545,30 +569,41 @@ tryCatch({
     for (trend_num in 1:best_n_states) {
       cat(paste("Creating map for Trend", trend_num, "\n"))
       
-      # Trend time series plot
+      # Trend time series plot with quartile colors
       trend_data <- data.frame(
         time = 1:length(trends_within[trend_num, ]),
         value = as.numeric(trends_within[trend_num, ]),
         time_label = time_labels_used
-      )
+      ) %>%
+        mutate(
+          quartile = str_extract(time_label, "Q[0-4]"),
+          year = str_extract(time_label, "\\d{4}")
+        )
       
       trend_plot <- ggplot(trend_data, aes(x = time, y = value)) +
-        geom_line(color = "steelblue", linewidth = 1.5, alpha = 0.8) +
-        geom_point(color = "steelblue", size = 3, alpha = 0.9) +
-        geom_hline(yintercept = 0, linetype = "dashed", alpha = 0.5) +
+        geom_line(color = "grey60", linewidth = 1.5, alpha = 0.8) +
+        geom_point(aes(color = quartile), size = 4, alpha = 0.9) +
+        geom_hline(yintercept = 0, linetype = "dashed", alpha = 0.1) +
+        scale_color_manual(
+          values = quartile_colors,
+          name = "Quartile",
+          labels = c("Q0" = "Q0 (Start)", "Q1" = "Q1", "Q2" = "Q2", "Q3" = "Q3", "Q4" = "Q4")
+        ) +
         scale_x_continuous(breaks = trend_data$time, labels = trend_data$time_label) +
         labs(
           title = paste("Within Quartile Proportion - Trend", trend_num, "Time Series"),
           x = "Year-Quarter", 
           y = "Trend Value"
         ) +
-        theme_minimal() +
+        theme_void() +
         theme(
           plot.title = element_text(face = "bold", size = 14),
-          axis.text.x = element_text(angle = 45, hjust = 1, size = 10)
-        )
+          axis.text.x = element_text(angle = 45, hjust = 1, size = 10),
+          legend.position = "bottom"
+        ) +
+        guides(color = guide_legend(override.aes = list(size = 5)))
       
-      # Prepare spatial data with loadings
+      # Prepare spatial data with loadings (unchanged)
       loadings_data <- data.frame(
         mgmt_river = rownames(Z_within),
         loading = Z_within[, trend_num],
@@ -596,19 +631,20 @@ tryCatch({
           geom_sf(data = edges_with_loadings, 
                   aes(color = loading, linewidth = stream_order), 
                   alpha = 0.8) +
-          scale_color_gradient2(
-            low = "blue", mid = "white", high = "red", midpoint = 0,
+          scale_color_distiller(
+            palette = "RdYlBu", 
+            direction = -1,
             name = "Loading\nValue",
             limits = c(-max(abs(loadings_data$loading)), max(abs(loadings_data$loading)))
           ) +
           scale_linewidth_continuous(
-            range = c(0.3, 3.0), 
+            range = c(0.3, 2.0), 
             name = "Stream\nOrder"
           ) +
           coord_sf(datum = NA) +
           labs(
             title = paste("Within Quartile Proportion - Trend", trend_num, "Loadings Map"),
-            subtitle = "Rivers colored by loading values (blue = negative, red = positive)"
+            subtitle = "Rivers colored by loading values (red = negative, blue = positive)"
           ) +
           theme_void() +
           theme(
@@ -645,6 +681,159 @@ tryCatch({
 })
 
 # ============================================================================
+# 8.5. CREATE INDIVIDUAL QUARTILE PLOTS WITH GAM SMOOTHING
+# ============================================================================
+
+# ============================================================================
+# 8.5. CREATE INDIVIDUAL QUARTILE PLOTS WITH GAM SMOOTHING
+# ============================================================================
+
+# ============================================================================
+# 8.5. CREATE INDIVIDUAL QUARTILE PLOTS WITH GAM SMOOTHING
+# ============================================================================
+
+cat("\n=== CREATING INDIVIDUAL QUARTILE PLOTS WITH GAM SMOOTHING ===\n")
+
+# Load mgam for GAM fitting
+if (!require(mgcv, quietly = TRUE)) {
+  install.packages("mgcv")
+  library(mgcv)
+}
+
+# Create individual quartile plots for each trend
+tryCatch({
+  edges <- st_read(SPATIAL_DATA_PATH, quiet = TRUE)
+  basin <- st_read(BASIN_PATH, quiet = TRUE)
+  
+  if ("mgmt_river" %in% colnames(edges)) {
+    
+    for (trend_num in 1:best_n_states) {
+      cat(paste("Creating quartile plots for Trend", trend_num, "\n"))
+      
+      # Prepare base trend data
+      trend_data <- data.frame(
+        time = 1:length(trends_within[trend_num, ]),
+        value = as.numeric(trends_within[trend_num, ]),
+        time_label = time_labels_used
+      ) %>%
+        mutate(
+          quartile = str_extract(time_label, "Q[0-4]"),
+          year = as.numeric(str_extract(time_label, "\\d{4}"))
+        )
+      
+      # Create plots for each quartile
+      for (q in c("Q0", "Q1", "Q2", "Q3", "Q4")) {
+        cat(paste("  Creating plot for", q, "\n"))
+        
+        # Filter data for current quartile
+        quartile_data <- trend_data %>%
+          filter(quartile == q) %>%
+          arrange(year)
+        
+        # Create trend plot with LOESS smoothing and background points
+        trend_plot <- ggplot() +
+          # Add all other quartile points in grey (background)
+          geom_point(data = trend_data %>% filter(quartile != q), 
+                     aes(x = year, y = value), 
+                     color = "grey80", size = 2, alpha = 0.6) +
+          # Add LOESS smooth for current quartile
+          geom_smooth(data = quartile_data, aes(x = year, y = value),
+                      method = "loess", se = TRUE, color = quartile_colors[q], 
+                      fill = quartile_colors[q], alpha = 0.3, linewidth = 1.5) +
+          # Add highlighted points for current quartile
+          geom_point(data = quartile_data, aes(x = year, y = value),
+                     color = quartile_colors[q], size = 4, alpha = 0.9) +
+          geom_hline(yintercept = 0, linetype = "dashed", alpha = 0.1) +
+          scale_x_continuous(breaks = unique(trend_data$year)) +
+          labs(
+            title = paste("Within Quartile Proportion - Trend", trend_num, "-", q, "Time Series"),
+            x = "Year", 
+            y = "Trend Value"
+          ) +
+          theme_void() +
+          theme(
+            plot.title = element_text(face = "bold", size = 14),
+            axis.text.x = element_text(angle = 45, hjust = 1, size = 10)
+          )
+        
+        # Prepare spatial data with loadings (same as before)
+        loadings_data <- data.frame(
+          mgmt_river = rownames(Z_within),
+          loading = Z_within[, trend_num],
+          stringsAsFactors = FALSE
+        )
+        
+        edges_with_loadings <- edges %>%
+          left_join(loadings_data, by = "mgmt_river") %>%
+          filter(!is.na(mgmt_river) & mgmt_river != "") %>%
+          mutate(
+            stream_order = ifelse(is.na(Str_Order), 3, Str_Order),
+            line_width = pmax(0.3, pmin(2.0, 0.3 + (stream_order - min(stream_order, na.rm = TRUE)) * 
+                                          (2.0 - 0.3) / (max(stream_order, na.rm = TRUE) - min(stream_order, na.rm = TRUE))))
+          )
+        
+        # Create spatial map (same as before)
+        if (nrow(edges_with_loadings) > 0) {
+          if (st_crs(basin) != st_crs(edges_with_loadings)) {
+            basin <- st_transform(basin, st_crs(edges_with_loadings))
+          }
+          
+          map_plot <- ggplot() +
+            geom_sf(data = basin, fill = "gray95", color = "gray70", 
+                    linewidth = 0.5, alpha = 0.3) +
+            geom_sf(data = edges_with_loadings, 
+                    aes(color = loading, linewidth = stream_order), 
+                    alpha = 0.8) +
+            scale_color_distiller(
+              palette = "RdYlBu", 
+              direction = -1,
+              name = "Loading\nValue",
+              limits = c(-max(abs(loadings_data$loading)), max(abs(loadings_data$loading)))
+            ) +
+            scale_linewidth_continuous(
+              range = c(0.3, 2.0), 
+              name = "Stream\nOrder"
+            ) +
+            coord_sf(datum = NA) +
+            labs(
+              title = paste("Within Quartile Proportion - Trend", trend_num, "Loadings Map"),
+              subtitle = "Rivers colored by loading values (red = negative, blue = positive)"
+            ) +
+            theme_void() +
+            theme(
+              plot.title = element_text(face = "bold", size = 14, hjust = 0.5),
+              plot.subtitle = element_text(size = 12, hjust = 0.5),
+              legend.position = "right",
+              panel.background = element_rect(fill = "white", color = NA),
+              plot.background = element_rect(fill = "white", color = NA)
+            )
+          
+          # Save combined quartile-specific map
+          filename <- file.path(MAP_PATH, paste0("within_quartile_proportion_trend_", trend_num, "_", q, "_gam_map.png"))
+          
+          png(filename, width = 16, height = 8, units = "in", res = 300, bg = "white")
+          grid.arrange(
+            trend_plot, map_plot, 
+            ncol = 2, 
+            widths = c(1, 1.2),
+            top = textGrob(paste("Within Quartile Proportion - Trend", trend_num, "-", q, "Analysis"), 
+                           gp = gpar(fontsize = 16, fontface = "bold"))
+          )
+          dev.off()
+          
+          cat(paste("    Saved:", filename, "\n"))
+        }
+      }
+    }
+    
+  } else {
+    cat("Warning: mgmt_river column not found in spatial data\n")
+  }
+  
+}, error = function(e) {
+  cat("Error loading spatial data for quartile plots:", e$message, "\n")
+})
+# ============================================================================
 # 9. SUMMARY
 # ============================================================================
 
@@ -656,4 +845,3 @@ cat("✓ Varimax rotation applied\n")
 cat("✓ Trend plots created\n")
 cat("✓ Spatial maps generated\n")
 cat("\nAll results saved to specified directories.\n")
-
