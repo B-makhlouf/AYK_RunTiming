@@ -201,227 +201,227 @@ cat("- Rivers retained for analysis:", nrow(within_quartile_matrix_scaled), "\n"
 cat("- Time periods:", ncol(within_quartile_matrix_scaled), "\n")
 cat("- Data range after 0-1 scaling:", round(range(within_quartile_matrix_scaled, na.rm = TRUE), 3), "\n")
 
-# ============================================================================
-# 4. DFA MODEL COMPARISON Covariates vs no 
-# ============================================================================
-
-# FIXED: Prepare covariates to match 25 time periods (5 years × 5 quarters including Q0)
-
-# CPUE covariate - need to match the 25 time periods
-# Original data has CPUE for Q1-Q4, need to add Q0 values (zero)
-cpue_expanded <- both_ts_complete %>%
-  select(year, Quartile_Num, cpue_prop_in_quartile) %>%
-  distinct() %>%
-  arrange(year, Quartile_Num) %>%
-  pull(cpue_prop_in_quartile)
-
-# Z-normalize CPUE covariate
-cpue_mean <- mean(cpue_expanded, na.rm = TRUE)
-cpue_sd <- sd(cpue_expanded, na.rm = TRUE)
-cpue_normalized <- (cpue_expanded - cpue_mean) / cpue_sd
-cpue_cov <- matrix(cpue_normalized, nrow = 1)
-
-# Run size covariate - repeat each year's value 5 times (for Q0, Q1, Q2, Q3, Q4)
-runsize_data <- read.csv("/Users/benjaminmakhlouf/Research_repos/AYK_RunTiming/Data/Escapements_runsize.csv")
-runsize_expanded <- rep(runsize_data$Total.Run, each = 5)  # 5 quarters per year including Q0
-
-# Z-normalize run size covariate
-runsize_mean <- mean(runsize_expanded, na.rm = TRUE)
-runsize_sd <- sd(runsize_expanded, na.rm = TRUE)
-runsize_normalized <- (runsize_expanded - runsize_mean) / runsize_sd
-runsize_cov <- matrix(runsize_normalized, nrow = 1)
-
-# Combined covariates
-all_covariates <- rbind(cpue_cov, runsize_cov)
-
-cat("Covariates check:\n")
-cat("- CPUE covariate dimensions:", dim(cpue_cov), "\n")
-cat("- Run size covariate dimensions:", dim(runsize_cov), "\n")
-cat("- Combined covariates dimensions:", dim(all_covariates), "\n")
-cat("- Data matrix dimensions:", dim(within_quartile_matrix_clean), "\n")
-
-# Fit a 4-state DFA model with all covariates
-all_cvs <- MARSS(within_quartile_matrix_clean,
-                 model = list(m = 4, R = "diagonal and equal"),
-                 z.score = TRUE,
-                 form = "dfa",
-                 control = list(maxit = 50000), 
-                 method = "BFGS", 
-                 covariates = all_covariates,
-                 silent = TRUE)
-
-cpue_only <- MARSS(within_quartile_matrix_clean,
-                   model = list(m = 4, R = "diagonal and equal"),
-                   z.score = TRUE,
-                   form = "dfa",
-                   control = list(maxit = 50000), 
-                   method = "BFGS", 
-                   covariates = cpue_cov,
-                   silent = TRUE)
-
-runsize_only <- MARSS(within_quartile_matrix_clean,
-                      model = list(m = 4, R = "diagonal and equal"),
-                      z.score = TRUE,
-                      form = "dfa",
-                      control = list(maxit = 50000), 
-                      method = "BFGS", 
-                      covariates = runsize_cov,
-                      silent = TRUE)
-
-no_covariates <- MARSS(within_quartile_matrix_clean,
-                       model = list(m = 4, R = "diagonal and equal"),
-                       z.score = TRUE,
-                       form = "dfa",
-                       control = list(maxit = 50000), 
-                       method = "BFGS",
-                       silent = TRUE)
-
-# Extract and compare AIC 
-aic_comparison <- data.frame(
-  Model = c("All Covariates", "CPUE Only", "Run Size Only", "No Covariates"),
-  AIC = c(all_cvs$AIC, cpue_only$AIC, runsize_only$AIC, no_covariates$AIC),
-  AICc = c(all_cvs$AICc, cpue_only$AICc, runsize_only$AICc, no_covariates$AICc),
-  Converged = c(all_cvs$convergence == 0, cpue_only$convergence == 0, 
-                runsize_only$convergence == 0, no_covariates$convergence == 0)
-) %>%
-  mutate(Delta_AIC = AIC - min(AIC, na.rm = TRUE),
-         Delta_AICc = AICc - min(AICc, na.rm = TRUE)) %>%
-  arrange(AICc)
-
-# Print the comparison
-print(aic_comparison)
-
-# ============================================================================
-# 4. DFA MODEL COMPARISON (1-4 STATES)
-# ============================================================================
-
-cat("\n=== COMPARING DFA MODELS (1-4 STATES) ===\n")
-
-# Initialize results storage
-model_results <- data.frame(
-  states = 1:4,
-  rmse = numeric(4),
-  aic = numeric(4),
-  aicc = numeric(4),
-  loglik = numeric(4),
-  converged = logical(4)
-)
-
-# Test each model
-for(m_states in 1:4) {
-  cat(sprintf("Fitting %d-state model...\n", m_states))
-  
-  tryCatch({
-    dfa_model <- MARSS(within_quartile_matrix_scaled,
-                       model = list(m = m_states, R = "diagonal and unequal"),
-                       z.score = FALSE,
-                       form = "dfa",
-                       control = list(maxit = 50000), 
-                       method = "BFGS", 
-                       silent = TRUE)
-    
-    if(dfa_model$convergence == 0) {
-      # Calculate RMSE
-      fitted_values <- if(m_states == 1) {
-        coef(dfa_model, type = "matrix")$Z %*% dfa_model$states
-      } else {
-        H_inv <- varimax(coef(dfa_model, type = "matrix")$Z)$rotmat
-        coef(dfa_model, type = "matrix")$Z %*% H_inv %*% dfa_model$states
-      }
-      rmse <- sqrt(mean((within_quartile_matrix_scaled - fitted_values)^2, na.rm = TRUE))
-      
-      # Store results
-      model_results[m_states, ] <- list(
-        states = m_states,
-        rmse = rmse,
-        aic = dfa_model$AIC,
-        aicc = dfa_model$AICc,
-        loglik = dfa_model$logLik,
-        converged = TRUE
-      )
-      
-      cat(sprintf("  RMSE: %.4f | AICc: %.2f\n", rmse, dfa_model$AICc))
-      
-    } else {
-      model_results[m_states, "converged"] <- FALSE
-      cat("  Model did not converge\n")
-    }
-    
-  }, error = function(e) {
-    model_results[m_states, "converged"] <- FALSE
-    cat(sprintf("  Error: %s\n", e$message))
-  })
-}
-
-# Display results
-cat("\n=== MODEL COMPARISON RESULTS ===\n")
-print(model_results[model_results$converged, ])
-
-# Select best model
-best_n_states <- 2
-cat(sprintf("\nUsing %d-state model for final analysis\n", best_n_states))
-
-# Fitting 1-state model...
-# RMSE: 0.5204 | AICc: -319.74
-# Fitting 2-state model...
-# RMSE: 0.4938 | AICc: -889.88
-# Fitting 3-state model...
-# RMSE: 0.4923 | AICc: -1190.33
-# Fitting 4-state model...
-# RMSE: 0.4948 | AICc: -1258.13
-
-
-#########################
-######################### There's the most support for 3, but lets do 4 because there's 4 states
-#########################
-
-#  Test different covariance structures 
-
-equal<- MARSS(within_quartile_matrix_scaled,
-                   model = list(m = 4, R = "diagonal and equal"),
-                   z.score = FALSE,
-                   form = "dfa",
-                   control = list(maxit = 50000), 
-                   method = "BFGS", 
-                   silent = TRUE)
-
-unequal <- MARSS(within_quartile_matrix_scaled,
-                     model = list(m = 4, R = "diagonal and unequal"),
-                     z.score = FALSE,
-                     form = "dfa",
-                     control = list(maxit = 50000), 
-                     method = "BFGS", 
-                     silent = TRUE)
-
-
-## Compare AICs 
-
-aic_comparison <- data.frame(
-  Model = c("Equal Covariance", "Unequal Covariance"),
-  AIC = c(equal$AIC, unequal$AIC),
-  AICc = c(equal$AICc, unequal$AICc),
-  Converged = c(equal$convergence == 0, unequal$convergence == 0)
-) %>%
-  mutate(Delta_AIC = AIC - min(AIC, na.rm = TRUE),
-         Delta_AICc = AICc - min(AICc, na.rm = TRUE)) %>%
-  arrange(AICc)
-
-print(aic_comparison)
-
-######### For 3 state models 
-############################
-
-# Model        AIC       AICc Converged Delta_AIC Delta_AICc
-# 1 Unequal Covariance -1218.7914 -1190.3269      TRUE    0.0000     0.0000
-# 2   Equal Covariance  -991.9487  -976.4294      TRUE  226.8427   213.8975
-
-
-######## For 4 state models 
-###########################
-# # Model        AIC       AICc Converged Delta_AIC Delta_AICc
-# 1 Unequal Covariance -1218.7914 -1190.3269      TRUE    0.0000     0.0000
-# 2   Equal Covariance  -991.9487  -976.4294      TRUE  226.8427   213.8975
+# # ============================================================================
+# # 4. DFA MODEL COMPARISON Covariates vs no 
+# # ============================================================================
 # 
+# # FIXED: Prepare covariates to match 25 time periods (5 years × 5 quarters including Q0)
+# 
+# # CPUE covariate - need to match the 25 time periods
+# # Original data has CPUE for Q1-Q4, need to add Q0 values (zero)
+# cpue_expanded <- both_ts_complete %>%
+#   select(year, Quartile_Num, cpue_prop_in_quartile) %>%
+#   distinct() %>%
+#   arrange(year, Quartile_Num) %>%
+#   pull(cpue_prop_in_quartile)
+# 
+# # Z-normalize CPUE covariate
+# cpue_mean <- mean(cpue_expanded, na.rm = TRUE)
+# cpue_sd <- sd(cpue_expanded, na.rm = TRUE)
+# cpue_normalized <- (cpue_expanded - cpue_mean) / cpue_sd
+# cpue_cov <- matrix(cpue_normalized, nrow = 1)
+# 
+# # Run size covariate - repeat each year's value 5 times (for Q0, Q1, Q2, Q3, Q4)
+# runsize_data <- read.csv("/Users/benjaminmakhlouf/Research_repos/AYK_RunTiming/Data/Escapements_runsize.csv")
+# runsize_expanded <- rep(runsize_data$Total.Run, each = 5)  # 5 quarters per year including Q0
+# 
+# # Z-normalize run size covariate
+# runsize_mean <- mean(runsize_expanded, na.rm = TRUE)
+# runsize_sd <- sd(runsize_expanded, na.rm = TRUE)
+# runsize_normalized <- (runsize_expanded - runsize_mean) / runsize_sd
+# runsize_cov <- matrix(runsize_normalized, nrow = 1)
+# 
+# # Combined covariates
+# all_covariates <- rbind(cpue_cov, runsize_cov)
+# 
+# cat("Covariates check:\n")
+# cat("- CPUE covariate dimensions:", dim(cpue_cov), "\n")
+# cat("- Run size covariate dimensions:", dim(runsize_cov), "\n")
+# cat("- Combined covariates dimensions:", dim(all_covariates), "\n")
+# cat("- Data matrix dimensions:", dim(within_quartile_matrix_clean), "\n")
+# 
+# # Fit a 4-state DFA model with all covariates
+# all_cvs <- MARSS(within_quartile_matrix_clean,
+#                  model = list(m = 4, R = "diagonal and equal"),
+#                  z.score = TRUE,
+#                  form = "dfa",
+#                  control = list(maxit = 50000), 
+#                  method = "BFGS", 
+#                  covariates = all_covariates,
+#                  silent = TRUE)
+# 
+# cpue_only <- MARSS(within_quartile_matrix_clean,
+#                    model = list(m = 4, R = "diagonal and equal"),
+#                    z.score = TRUE,
+#                    form = "dfa",
+#                    control = list(maxit = 50000), 
+#                    method = "BFGS", 
+#                    covariates = cpue_cov,
+#                    silent = TRUE)
+# 
+# runsize_only <- MARSS(within_quartile_matrix_clean,
+#                       model = list(m = 4, R = "diagonal and equal"),
+#                       z.score = TRUE,
+#                       form = "dfa",
+#                       control = list(maxit = 50000), 
+#                       method = "BFGS", 
+#                       covariates = runsize_cov,
+#                       silent = TRUE)
+# 
+# no_covariates <- MARSS(within_quartile_matrix_clean,
+#                        model = list(m = 4, R = "diagonal and equal"),
+#                        z.score = TRUE,
+#                        form = "dfa",
+#                        control = list(maxit = 50000), 
+#                        method = "BFGS",
+#                        silent = TRUE)
+# 
+# # Extract and compare AIC 
+# aic_comparison <- data.frame(
+#   Model = c("All Covariates", "CPUE Only", "Run Size Only", "No Covariates"),
+#   AIC = c(all_cvs$AIC, cpue_only$AIC, runsize_only$AIC, no_covariates$AIC),
+#   AICc = c(all_cvs$AICc, cpue_only$AICc, runsize_only$AICc, no_covariates$AICc),
+#   Converged = c(all_cvs$convergence == 0, cpue_only$convergence == 0, 
+#                 runsize_only$convergence == 0, no_covariates$convergence == 0)
+# ) %>%
+#   mutate(Delta_AIC = AIC - min(AIC, na.rm = TRUE),
+#          Delta_AICc = AICc - min(AICc, na.rm = TRUE)) %>%
+#   arrange(AICc)
+# 
+# # Print the comparison
+# print(aic_comparison)
+# 
+# # ============================================================================
+# # 4. DFA MODEL COMPARISON (1-4 STATES)
+# # ============================================================================
+# 
+# cat("\n=== COMPARING DFA MODELS (1-4 STATES) ===\n")
+# 
+# # Initialize results storage
+# model_results <- data.frame(
+#   states = 1:4,
+#   rmse = numeric(4),
+#   aic = numeric(4),
+#   aicc = numeric(4),
+#   loglik = numeric(4),
+#   converged = logical(4)
+# )
+# 
+# # Test each model
+# for(m_states in 1:4) {
+#   cat(sprintf("Fitting %d-state model...\n", m_states))
+#   
+#   tryCatch({
+#     dfa_model <- MARSS(within_quartile_matrix_scaled,
+#                        model = list(m = m_states, R = "diagonal and unequal"),
+#                        z.score = FALSE,
+#                        form = "dfa",
+#                        control = list(maxit = 50000), 
+#                        method = "BFGS", 
+#                        silent = TRUE)
+#     
+#     if(dfa_model$convergence == 0) {
+#       # Calculate RMSE
+#       fitted_values <- if(m_states == 1) {
+#         coef(dfa_model, type = "matrix")$Z %*% dfa_model$states
+#       } else {
+#         H_inv <- varimax(coef(dfa_model, type = "matrix")$Z)$rotmat
+#         coef(dfa_model, type = "matrix")$Z %*% H_inv %*% dfa_model$states
+#       }
+#       rmse <- sqrt(mean((within_quartile_matrix_scaled - fitted_values)^2, na.rm = TRUE))
+#       
+#       # Store results
+#       model_results[m_states, ] <- list(
+#         states = m_states,
+#         rmse = rmse,
+#         aic = dfa_model$AIC,
+#         aicc = dfa_model$AICc,
+#         loglik = dfa_model$logLik,
+#         converged = TRUE
+#       )
+#       
+#       cat(sprintf("  RMSE: %.4f | AICc: %.2f\n", rmse, dfa_model$AICc))
+#       
+#     } else {
+#       model_results[m_states, "converged"] <- FALSE
+#       cat("  Model did not converge\n")
+#     }
+#     
+#   }, error = function(e) {
+#     model_results[m_states, "converged"] <- FALSE
+#     cat(sprintf("  Error: %s\n", e$message))
+#   })
+# }
+# 
+# # Display results
+# cat("\n=== MODEL COMPARISON RESULTS ===\n")
+# print(model_results[model_results$converged, ])
+# 
+# # Select best model
+# best_n_states <- 2
+# cat(sprintf("\nUsing %d-state model for final analysis\n", best_n_states))
+# 
+# # Fitting 1-state model...
+# # RMSE: 0.5204 | AICc: -319.74
+# # Fitting 2-state model...
+# # RMSE: 0.4938 | AICc: -889.88
+# # Fitting 3-state model...
+# # RMSE: 0.4923 | AICc: -1190.33
+# # Fitting 4-state model...
+# # RMSE: 0.4948 | AICc: -1258.13
+# 
+# 
+# #########################
+# ######################### There's the most support for 3, but lets do 4 because there's 4 states
+# #########################
+# 
+# #  Test different covariance structures 
+# 
+# equal<- MARSS(within_quartile_matrix_scaled,
+#               model = list(m = 4, R = "diagonal and equal"),
+#               z.score = FALSE,
+#               form = "dfa",
+#               control = list(maxit = 50000), 
+#               method = "BFGS", 
+#               silent = TRUE)
+# 
+# unequal <- MARSS(within_quartile_matrix_scaled,
+#                  model = list(m = 4, R = "diagonal and unequal"),
+#                  z.score = FALSE,
+#                  form = "dfa",
+#                  control = list(maxit = 50000), 
+#                  method = "BFGS", 
+#                  silent = TRUE)
+# 
+# 
+# ## Compare AICs 
+# 
+# aic_comparison <- data.frame(
+#   Model = c("Equal Covariance", "Unequal Covariance"),
+#   AIC = c(equal$AIC, unequal$AIC),
+#   AICc = c(equal$AICc, unequal$AICc),
+#   Converged = c(equal$convergence == 0, unequal$convergence == 0)
+# ) %>%
+#   mutate(Delta_AIC = AIC - min(AIC, na.rm = TRUE),
+#          Delta_AICc = AICc - min(AICc, na.rm = TRUE)) %>%
+#   arrange(AICc)
+# 
+# print(aic_comparison)
+# 
+# ######### For 3 state models 
+# ############################
+# 
+# # Model        AIC       AICc Converged Delta_AIC Delta_AICc
+# # 1 Unequal Covariance -1218.7914 -1190.3269      TRUE    0.0000     0.0000
+# # 2   Equal Covariance  -991.9487  -976.4294      TRUE  226.8427   213.8975
+# 
+# 
+# ######## For 4 state models 
+# ###########################
+# # # Model        AIC       AICc Converged Delta_AIC Delta_AICc
+# # 1 Unequal Covariance -1218.7914 -1190.3269      TRUE    0.0000     0.0000
+# # 2   Equal Covariance  -991.9487  -976.4294      TRUE  226.8427   213.8975
+# # 
 
 # ============================================================================
 # 5. FIT BEST DFA MODEL
@@ -459,7 +459,49 @@ trends_within <- solve(H_inv_within) %*% trends_within_orig
 colnames(Z_within) <- paste("Trend", 1:best_n_states)
 
 # ============================================================================
-# 6. CREATE TIME LABELS
+# 6. EXPORT LOADINGS BY MANAGEMENT TRIBUTARY
+# ============================================================================
+
+cat("\n=== EXPORTING LOADINGS DATA ===\n")
+
+# Create loadings export dataframe
+loadings_export <- as.data.frame(Z_within)
+loadings_export$mgmt_river <- rownames(Z_within)
+
+# Reorder columns to put management river first
+loadings_export <- loadings_export[, c("mgmt_river", paste("Trend", 1:best_n_states))]
+
+# Save to CSV
+loadings_filename <- file.path(FIGURE_PATH, "dfa_loadings_by_management_river.csv")
+write.csv(loadings_export, loadings_filename, row.names = FALSE)
+
+cat("✓ Loadings exported to:", loadings_filename, "\n")
+cat("✓ File contains", nrow(loadings_export), "management rivers and", best_n_states, "trends\n")
+
+# Also create a summary table with the strongest loadings for each trend
+loadings_summary <- data.frame()
+for(i in 1:best_n_states) {
+  trend_loadings <- data.frame(
+    Trend = paste("Trend", i),
+    mgmt_river = rownames(Z_within),
+    Loading = Z_within[, i],
+    Abs_Loading = abs(Z_within[, i])
+  ) %>%
+    arrange(desc(Abs_Loading)) %>%
+    slice_head(n = 5) %>%  # Top 5 strongest loadings
+    select(-Abs_Loading)
+  
+  loadings_summary <- rbind(loadings_summary, trend_loadings)
+}
+
+# Save summary table
+summary_filename <- file.path(FIGURE_PATH, "dfa_loadings_summary_top5.csv")
+write.csv(loadings_summary, summary_filename, row.names = FALSE)
+
+cat("✓ Loadings summary (top 5 per trend) exported to:", summary_filename, "\n")
+
+# ============================================================================
+# 7. CREATE TIME LABELS
 # ============================================================================
 
 # Create time labels including Q0
@@ -469,7 +511,7 @@ time_labels <- paste0(years, "-Q", quarters)
 time_labels_used <- time_labels[1:ncol(trends_within)]
 
 # ============================================================================
-# 7. PLOT DFA RESULTS WITH QUARTILE-COLORED POINTS
+# 8. PLOT DFA RESULTS WITH QUARTILE-COLORED POINTS
 # ============================================================================
 
 cat("\n=== CREATING DFA PLOTS WITH QUARTILE COLORS ===\n")
@@ -552,7 +594,7 @@ for (i in 1:best_n_states) {
 }
 
 # ============================================================================
-# 8. CREATE SPATIAL MAPS WITH QUARTILE-COLORED TREND PLOTS
+# 9. CREATE SPATIAL MAPS WITH QUARTILE-COLORED TREND PLOTS
 # ============================================================================
 
 cat("\n=== CREATING SPATIAL MAPS WITH QUARTILE-COLORED TRENDS ===\n")
@@ -681,15 +723,7 @@ tryCatch({
 })
 
 # ============================================================================
-# 8.5. CREATE INDIVIDUAL QUARTILE PLOTS WITH GAM SMOOTHING
-# ============================================================================
-
-# ============================================================================
-# 8.5. CREATE INDIVIDUAL QUARTILE PLOTS WITH GAM SMOOTHING
-# ============================================================================
-
-# ============================================================================
-# 8.5. CREATE INDIVIDUAL QUARTILE PLOTS WITH GAM SMOOTHING
+# 10. CREATE INDIVIDUAL QUARTILE PLOTS WITH GAM SMOOTHING
 # ============================================================================
 
 cat("\n=== CREATING INDIVIDUAL QUARTILE PLOTS WITH GAM SMOOTHING ===\n")
@@ -833,8 +867,9 @@ tryCatch({
 }, error = function(e) {
   cat("Error loading spatial data for quartile plots:", e$message, "\n")
 })
+
 # ============================================================================
-# 9. SUMMARY
+# 11. SUMMARY
 # ============================================================================
 
 cat("\n=== ANALYSIS COMPLETE ===\n")
@@ -842,6 +877,10 @@ cat("✓ Data prepared with Q0 entries\n")
 cat("✓ DFA models compared (1-4 states)\n")
 cat(sprintf("✓ Best model fitted (%d states)\n", best_n_states))
 cat("✓ Varimax rotation applied\n")
+cat("✓ Loadings exported to CSV files:\n")
+cat("  - Main loadings file:", loadings_filename, "\n")
+cat("  - Summary file (top 5 per trend):", summary_filename, "\n")
 cat("✓ Trend plots created\n")
 cat("✓ Spatial maps generated\n")
+cat("✓ Individual quartile plots with GAM smoothing created\n")
 cat("\nAll results saved to specified directories.\n")
