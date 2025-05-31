@@ -103,10 +103,9 @@ p1 <- ggplot(within_quartile_data, aes(x = Time_Continuous, y = within_quartile_
   ) +
   scale_y_continuous(labels = scales::percent_format(scale = 1), limits = c(0, NA)) +
   labs(
-    title = "Within Quartile Proportion by Management River Over Time (with Q0)",
-    subtitle = "Q0 represents zero production at the start of each year",
-    x = "Year (Quarterly - includes Q0)",
-    y = "Proportion of Quartile Run (%)",
+    title = "Within Quartile Proportion by Management Unit Over Time ",
+    x = "Year",
+    y = "Proportional contribution to the Quartile",
     color = "Management River"
   ) +
   theme_minimal(base_size = 13) +
@@ -126,10 +125,10 @@ p2 <- ggplot(within_quartile_data, aes(x = Time_Continuous, y = within_quartile_
   ) +
   scale_y_continuous(labels = scales::percent_format(scale = 1)) +
   labs(
-    title = "Within Quartile Proportion by Management River (Faceted with Q0)",
-    subtitle = "Each panel shows one management river's quarterly pattern",
+    title = "Within Quartile Proportion by Management Unit Over Time ",
     x = "Year",
-    y = "Proportion of Quartile Run (%)"
+    y = "Proportional contribution to the Quartile",
+    color = "Management River"
   ) +
   theme_minimal(base_size = 11) +
   theme(

@@ -8,16 +8,8 @@ ggplot(totalruns, aes(x=Year, y=Total.Run)) +
   geom_line(color = "#FB8B24", size = 1.2) +
   geom_point(color = "#FB8B24", size = 2) +
   labs(title="Kuskokwim Total Run Size by Year", x="Year", y="Total Run Size") +
-  theme_minimal() +
-  theme(
-    plot.background = element_rect(fill = "#2E3440", color = NA),
-    panel.background = element_rect(fill = "#2E3440", color = NA),
-    panel.grid = element_line(color = "#3B4252"),
-    text = element_text(color = "white"),
-    axis.text = element_text(color = "white"),
-    plot.title = element_text(color = "white")
-  )
-
+  theme_minimal() 
+  
 
 # annual_total_run_maps.R
 # Create annual basin maps showing tributaries colored by total run size
@@ -204,3 +196,104 @@ for (year in years) {
                   "fish - Color intensity:", round(run_normalized * 100, 1), "%"))
   }
 }
+
+
+
+
+
+# ============================================================================
+# CPUE QUARTILE TIME SERIES VISUALIZATION
+# Shows seasonal timing patterns of salmon run across years
+# ============================================================================
+
+library(dplyr)
+library(ggplot2)
+library(readr)
+library(scales)
+library(RColorBrewer)
+
+# Load the data
+data_path <- "/Users/benjaminmakhlouf/Research_repos/AYK_RunTiming/Analysis_Results/Management_River_Analysis/management_river_analysis_tidy.csv"
+mgmt_data <- read_csv(data_path)
+
+# ============================================================================
+# DATA PREPARATION
+# ============================================================================
+
+
+mgmt_data<- read.csv("/Users/benjaminmakhlouf/Research_repos/AYK_RunTiming/Analysis_Results/Management_River_Analysis/management_river_analysis_tidy.csv")
+
+
+
+
+# Create summary of CPUE proportions by quartile and year
+# Since cpue_prop_in_quartile should be the same for all management rivers 
+# within a given year-quartile combination, we'll take the unique values
+cpue_summary <- mgmt_data %>%
+  select(year, quartile, cpue_prop_in_quartile) %>%
+  distinct() %>%
+  arrange(year, quartile)
+
+# Check the data structure
+cat("Data structure:\n")
+print(head(cpue_summary))
+cat("\nUnique years:", paste(sort(unique(cpue_summary$year)), collapse = ", "), "\n")
+cat("Unique quartiles:", paste(sort(unique(cpue_summary$quartile)), collapse = ", "), "\n")
+cat("Total observations:", nrow(cpue_summary), "\n")
+
+# Create numeric quartile for proper ordering and continuous time variable
+cpue_summary <- cpue_summary %>%
+  mutate(
+    quartile_num = case_when(
+      quartile == "Q1" ~ 1,
+      quartile == "Q2" ~ 2,
+      quartile == "Q3" ~ 3,
+      quartile == "Q4" ~ 4,
+      TRUE ~ as.numeric(gsub("Q", "", quartile))
+    ),
+    # Create continuous time variable for smooth plotting
+    time_continuous = year + (quartile_num - 1) * 0.25,
+    # Create discrete time labels for x-axis
+    time_label = paste0(year, "-", quartile),
+    # Convert to percentage for easier interpretation
+    cpue_percent = cpue_prop_in_quartile * 100
+  ) %>%
+  arrange(year, quartile_num)
+
+# ============================================================================
+# VISUALIZATION 1: SINGLE CONTINUOUS TIME SERIES LINE
+# ============================================================================
+
+# Create time labels for x-axis (every other point to avoid crowding)
+time_breaks <- cpue_summary$time_continuous[seq(1, nrow(cpue_summary), by = 2)]
+time_labels <- cpue_summary$time_label[seq(1, nrow(cpue_summary), by = 2)]
+
+p1 <- ggplot(cpue_summary, aes(x = time_continuous, y = cpue_percent)) +
+  geom_line(size = 1.5, color = "steelblue", alpha = 0.8) +
+  geom_point(size = 3, color = "steelblue", alpha = 0.9) +
+  scale_x_continuous(
+    name = "Time Period",
+    breaks = time_breaks,
+    labels = time_labels
+  ) +
+  scale_y_continuous(
+    name = "CPUE Proportion (%)",
+    labels = scales::number_format(accuracy = 0.1, suffix = "%"),
+    limits = c(0, max(cpue_summary$cpue_percent) * 1.05)
+  ) +
+  labs(
+    title = "CPUE vs Quartile 2017-2021",
+  ) +
+  theme_minimal() +
+  theme(
+    plot.title = element_text(size = 16, face = "bold", hjust = 0.5),
+    plot.subtitle = element_text(size = 12, hjust = 0.5),
+    plot.caption = element_text(size = 10, hjust = 0.5, face = "italic"),
+    panel.grid.minor.x = element_blank(),
+    panel.grid.minor.y = element_blank(),
+    axis.title = element_text(face = "bold", size = 12),
+    axis.text = element_text(size = 10),
+    axis.text.x = element_text(angle = 45, hjust = 1)
+  )
+
+print(p1)
