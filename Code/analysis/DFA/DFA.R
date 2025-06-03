@@ -14,6 +14,7 @@ suppressPackageStartupMessages({
   library(gridExtra)
   library(sf)
   library(grid)
+  library(scales)
 })
 
 # Set paths
@@ -55,7 +56,10 @@ both_ts_long <- read.csv(DATA_PATH) %>%
 
 cat(sprintf("Data loaded: %d rows\n", nrow(both_ts_long)))
 
-# Filter valid data
+# Remove Johnson river and filter valid data
+both_ts_long <- both_ts_long %>%
+  filter(mgmt_river != "Johnson")
+
 proportion_total_data <- both_ts_long %>%
   filter(!is.na(total_run_prop))
 
@@ -69,13 +73,13 @@ river_colors <- if (n_rivers <= 11) {
 }
 names(river_colors) <- mgmt_rivers
 
-# Plot
+# Plot initial time series
 p1 <- ggplot(proportion_total_data, aes(x = Time_Continuous, y = total_run_prop, color = mgmt_river)) +
   geom_line(linewidth = 1.2, alpha = 0.8) +
   geom_point(size = 2.5, alpha = 0.9) +
   scale_color_manual(values = river_colors) +
   scale_x_continuous(breaks = unique(proportion_total_data$year)) +
-  scale_y_continuous(labels = scales::percent_format(scale = 1), limits = c(0, NA)) +
+  scale_y_continuous(labels = percent_format(scale = 1), limits = c(0, NA)) +
   labs(
     title = "Proportion of Total by Management River Over Time",
     x = "Year (Quarterly)",
@@ -90,18 +94,14 @@ p1 <- ggplot(proportion_total_data, aes(x = Time_Continuous, y = total_run_prop,
     legend.title = element_text(face = "bold")
   )
 
-# Save and print
 ggsave(file.path(FIGURE_PATH, "total_run_prop_timeseries.png"), 
        p1, width = 12, height = 8, dpi = 300, bg = "white")
 print(p1)
 
 # ============================================================================
-# 2. PREPARE DATA MATRIX
+# 2. PREPARE DATA MATRIX FOR DFA
 # ============================================================================
 cat("Preparing data matrix for DFA...\n")
-# First, remove Johnson
-both_ts_long <- both_ts_long %>%
-  filter(mgmt_river != "Johnson")
 
 # Convert to wide format
 proportion_total_wide <- both_ts_long %>%
@@ -120,27 +120,14 @@ row_vars <- apply(proportion_total_matrix, 1, var, na.rm = TRUE)
 good_rivers <- which(row_sums > 0 & row_vars > 1e-10 & !is.na(row_vars))
 proportion_total_matrix_clean <- proportion_total_matrix[good_rivers, ]
 
-# Z-normalize each row (mean = 0, sd = 1)
-proportion_total_matrix_scaled <- t(apply(proportion_total_matrix_clean, 1, function(x) {
-  x_mean <- mean(x, na.rm = TRUE)
-  x_sd <- sd(x, na.rm = TRUE)
-  if(x_sd == 0 || is.na(x_sd)) return(rep(0, length(x)))  # if no variance, return zeros
-  return((x - x_mean) / x_sd)
-}))
+cat(sprintf("Matrix dimensions: %d rivers × %d time points\n", 
+            nrow(proportion_total_matrix_clean), ncol(proportion_total_matrix_clean)))
 
-# Store normalization parameters
-scaling_params <- data.frame(
-  river = rownames(proportion_total_matrix_clean),
-  mean_val = apply(proportion_total_matrix_clean, 1, mean, na.rm = TRUE),
-  sd_val = apply(proportion_total_matrix_clean, 1, sd, na.rm = TRUE)
-)
-
-
-# Create faceted plot of scaled data
-scaled_data_long <- proportion_total_matrix_scaled %>%
+# Create faceted plot of raw data
+raw_data_long <- proportion_total_matrix_clean %>%
   as.data.frame() %>%
   mutate(mgmt_river = rownames(.)) %>%
-  pivot_longer(cols = -mgmt_river, names_to = "time_period", values_to = "scaled_value") %>%
+  pivot_longer(cols = -mgmt_river, names_to = "time_period", values_to = "proportion") %>%
   mutate(
     year = as.numeric(str_extract(time_period, "\\d{4}")),
     quarter = str_extract(time_period, "Q\\d"),
@@ -152,99 +139,33 @@ scaled_data_long <- proportion_total_matrix_scaled %>%
     )
   )
 
-p_scaled <- ggplot(scaled_data_long, aes(x = time_numeric, y = scaled_value)) +
+p_raw <- ggplot(raw_data_long, aes(x = time_numeric, y = proportion)) +
   geom_line(color = "steelblue", linewidth = 0.8) +
   geom_point(color = "steelblue", size = 1.5, alpha = 0.7) +
   facet_wrap(~mgmt_river, scales = "free_y", ncol = 3) +
-  scale_x_continuous(breaks = unique(scaled_data_long$year)) +
+  scale_x_continuous(breaks = unique(raw_data_long$year)) +
+  scale_y_continuous(labels = percent_format(scale = 1)) +
   labs(
-    title = "Scaled Total Run Proportion Data by Management River",
-    subtitle = "Data scaled to 0-1 range for each river",
+    title = "Raw Total Run Proportion Data by Management River",
     x = "Year-Quarter",
-    y = "Scaled Value (0-1)"
+    y = "Proportion of Total Run (%)"
   ) +
   theme_minimal(base_size = 11) +
   theme(
     axis.text.x = element_text(angle = 45, hjust = 1, size = 8),
     strip.text = element_text(face = "bold", size = 9),
     panel.grid.minor = element_blank(),
-    plot.title = element_text(face = "bold", hjust = 0.5),
-    plot.subtitle = element_text(hjust = 0.5)
-  )
-
-ggsave(file.path(FIGURE_PATH, "scaled_data_faceted_plot.png"), 
-       p_scaled, width = 12, height = 10, dpi = 300, bg = "white")
-
-print(p_scaled)
-
-# ============================================================================
-# 3. PREPARE COVARIATES
-# ============================================================================
-
-runsize_data <- read.csv("/Users/benjaminmakhlouf/Research_repos/AYK_RunTiming/Data/Escapements_runsize.csv")
-runsize_data <- runsize_data[rep(1:nrow(runsize_data), each = 4), ]  # 4 for Q1, Q2, Q3, Q4
-runsize_cov <- matrix(runsize_data$Total.Run, nrow = 1)
-
-# Z-score normalize covariate
-runsize_cov <- scale(t(runsize_cov))
-runsize_cov <- t(runsize_cov)
-
-# Plot
-plot_data <- data.frame(
-  time_index = 1:ncol(runsize_cov),
-  runsize_normalized = as.numeric(runsize_cov[1, ])
-)
-
-p_runsize <- ggplot(plot_data, aes(x = time_index, y = runsize_normalized)) +
-  geom_line(color = "darkblue", linewidth = 1) +
-  geom_point(color = "darkblue", size = 2, alpha = 0.7) +
-  labs(
-    title = "Normalized Runsize Covariate Over Time",
-    x = "Time Index",
-    y = "Z-score Normalized Runsize"
-  ) +
-  theme_minimal() +
-  theme(
     plot.title = element_text(face = "bold", hjust = 0.5)
   )
 
-print(p_runsize)
+ggsave(file.path(FIGURE_PATH, "raw_data_faceted_plot.png"), 
+       p_raw, width = 12, height = 10, dpi = 300, bg = "white")
+print(p_raw)
 
 # ============================================================================
-# 4. DFA MODEL COMPARISON (Run size vs no run size) 
+# 3. MODEL SELECTION: FIND OPTIMAL NUMBER OF TRENDS
 # ============================================================================
-
-# Fit DFA model with runsize covariate
-runsize_only <- MARSS(proportion_total_matrix_scaled,
-                      model = list(m = 4, R = "diagonal and unequal"),
-                      z.score = TRUE,
-                      form = "dfa",
-                      control = list(maxit = 50000), 
-                      method = "BFGS", 
-                      covariates = runsize_cov,
-                      silent = TRUE)
-
-# Fit DFA model without covariates (null model)
-no_covariates <- MARSS(proportion_total_matrix_scaled,
-                       model = list(m = 4, R = "diagonal and unequal"),
-                       z.score = TRUE,
-                       form = "dfa",
-                       control = list(maxit = 50000), 
-                       method = "BFGS",
-                       silent = TRUE)
-
-# Compare using AIC 
-aic_runsize <- AIC(runsize_only)
-aic_no_covariates <- AIC(no_covariates)
-
-#AIC for Run Size Model:  -85.78923 
-#AIC for No Covariates Model:  -112.9875 
-
-
-#===============================================================================
-
-#### Now test 1, 2, 3, 4 state models 
-
+cat("Running model selection for optimal number of trends...\n")
 
 # Fit DFA models with different numbers of states
 oneState <- MARSS(proportion_total_matrix_scaled,
@@ -282,10 +203,10 @@ fourState <- MARSS(proportion_total_matrix_scaled,
 # First, calculate R² for 1-state model
 Z1 <- coef(oneState, type = "matrix")$Z
 y_hat1 <- Z1 %*% oneState$states
+y_obs <- proportion_total_matrix_scaled
 SSR1 <- sum((y_obs - y_hat1)^2, na.rm = TRUE)
 SST <- sum((y_obs - rowMeans(y_obs, na.rm = TRUE))^2, na.rm = TRUE)
 R2_1 <- 1 - (SSR1 / SST)
-
 
 # Two State Model
 Z2 <- coef(twoState, type = "matrix")$Z
@@ -310,56 +231,6 @@ R2_4 <- 1 - (SSR4 / SST)
 cat("Two State R²:", round(R2_2, 3), "\n")
 cat("Three State R²:", round(R2_3, 3), "\n") 
 cat("Four State R²:", round(R2_4, 3), "\n")
-
-# Plot each model (copy your existing plot code 3 times, changing y_hat to y_hat2, y_hat3, y_hat4)
-# Plot Two State Model
-plot_data2 <- data.frame(
-  Time = rep(1:time_points, n_series * 2),
-  River = rep(rep(river_names, each = time_points), 2),
-  Value = c(as.vector(t(y_obs)), as.vector(t(y_hat2))),
-  Type = rep(c("Observed", "Fitted"), each = n_series * time_points)
-)
-
-ggplot(plot_data2, aes(x = Time, y = Value, color = Type)) +
-  geom_line(linewidth = 0.8) +
-  facet_wrap(~River, scales = "free_y") +
-  scale_color_manual(values = c("Observed" = "black", "Fitted" = "red")) +
-  labs(title = paste("Two State DFA Model (R² =", round(R2_2, 3), ")"),
-       x = "Time", y = "Proportion Values", color = "Data Type") +
-  theme_minimal() + theme(legend.position = "bottom")
-
-# Plot Three State Model
-plot_data3 <- data.frame(
-  Time = rep(1:time_points, n_series * 2),
-  River = rep(rep(river_names, each = time_points), 2),
-  Value = c(as.vector(t(y_obs)), as.vector(t(y_hat3))),
-  Type = rep(c("Observed", "Fitted"), each = n_series * time_points)
-)
-
-ggplot(plot_data3, aes(x = Time, y = Value, color = Type)) +
-  geom_line(linewidth = 0.8) +
-  facet_wrap(~River, scales = "free_y") +
-  scale_color_manual(values = c("Observed" = "black", "Fitted" = "red")) +
-  labs(title = paste("Three State DFA Model (R² =", round(R2_3, 3), ")"),
-       x = "Time", y = "Proportion Values", color = "Data Type") +
-  theme_minimal() + theme(legend.position = "bottom")
-
-# Plot Four State Model
-plot_data4 <- data.frame(
-  Time = rep(1:time_points, n_series * 2),
-  River = rep(rep(river_names, each = time_points), 2),
-  Value = c(as.vector(t(y_obs)), as.vector(t(y_hat4))),
-  Type = rep(c("Observed", "Fitted"), each = n_series * time_points)
-)
-
-ggplot(plot_data4, aes(x = Time, y = Value, color = Type)) +
-  geom_line(linewidth = 0.8) +
-  facet_wrap(~River, scales = "free_y") +
-  scale_color_manual(values = c("Observed" = "black", "Fitted" = "red")) +
-  labs(title = paste("Four State DFA Model (R² =", round(R2_4, 3), ")"),
-       x = "Time", y = "Proportion Values", color = "Data Type") +
-  theme_minimal() + theme(legend.position = "bottom")
-
 
 # Calculate Partial R² values
 # Partial R² = (R²_full - R²_reduced) / (1 - R²_reduced)
@@ -386,63 +257,20 @@ model_comparison <- data.frame(
 cat("=== DFA Model Comparison ===\n")
 print(model_comparison)
 
-# Model R_squared Partial_R_squared Variance_Explained Additional_Variance
-# 1 1 State    0.6484                NA               64.8                64.8
-# 2 2 State    0.9244            0.7851               92.4                27.6
-# 3 3 State    0.9518            0.3625               95.2                 2.7
-# 4 4 State    0.9563            0.0939               95.6                 0.5
-
-#### BEST MODEL IS 2 states 
-
+#### BEST MODEL IS 2 states
 
 # ============================================================================
-# 5. DFA MODEL COMPARISON (VARIANCE STRUCTURES)
+# 4. FIT BEST DFA MODEL WITH VARIMAX ROTATION
 # ============================================================================
+cat("Fitting best DFA model with varimax rotation...\n")
 
-r_equal <- MARSS(proportion_total_matrix,
-                 model = list(m = 2, R = "diagonal and equal"),
-                 z.score = TRUE,
-                 form = "dfa",
-                 control = list(maxit = 50000), 
-                 method = "BFGS",
-                 silent = TRUE)
-
-r_diagonal <- MARSS(proportion_total_matrix,
-                    model = list(m = 2, R = "diagonal and unequal"),
-                    z.score = TRUE,
-                    form = "dfa",
-                    control = list(maxit = 50000), 
-                    method = "BFGS",
-                    silent = TRUE)
-
-r_equalcov <- MARSS(proportion_total_matrix,
-                    model = list(m = 4, R = "equalvarcov"),
-                    z.score = TRUE,
-                    form = "dfa",
-                    control = list(maxit = 50000), 
-                    method = "kem",
-                    silent = TRUE)
-
-# Extract and compare AIC values
-aic_values_variance <- c(
-  r_equal = r_equal$AIC,
-  r_diagonal = r_diagonal$AIC,
-  r_equalcov = r_equalcov$AIC
-)
-
-cat("\n=== VARIANCE STRUCTURE COMPARISON ===\n")
-print(aic_values_variance)
-
-# ============================================================================
-# 6. FIT BEST DFA MODEL
-# ============================================================================
-
+best_m<- 2
 best_model_total <- MARSS(proportion_total_matrix,
-                          model = list(m = 4, R = "equalvarcov"),
+                          model = list(m = 2, R = "diagonal and unequal"),
                           z.score = FALSE,
                           form = "dfa", 
                           control = list(maxit = 50000), 
-                          method = "kem")
+                          method = "BFGS")
 
 # Extract and rotate results
 trends_total_orig <- best_model_total$states
@@ -456,113 +284,42 @@ H_inv_total <- varimax_result_total$rotmat
 # Rotate loadings and trends
 Z_total <- Z_total_orig %*% H_inv_total
 trends_total <- solve(H_inv_total) %*% trends_total_orig
-colnames(Z_total) <- paste("Trend", 1:4)
-
-# ============================================================================
-# 7. COVARIATE EFFECTS INTERPRETATION
-# ============================================================================
-
-# Extract covariate effects from the best model
-covariate_effects <- coef(best_model_total, type = "matrix")$D
-rownames(covariate_effects) <- rownames(Z_total)
-colnames(covariate_effects) <- "CPUE_effect"
-
-cat("\n=== COVARIATE EFFECTS SUMMARY ===\n")
-cat("CPUE Covariate Effects on Total Run Proportion by Management River:\n\n")
-
-# Create interpretable summary
-covariate_summary <- data.frame(
-  Management_River = rownames(covariate_effects),
-  CPUE_Effect = round(as.numeric(covariate_effects[,1]), 4),
-  Effect_Direction = ifelse(covariate_effects[,1] > 0, "Positive", "Negative"),
-  Effect_Magnitude = cut(abs(covariate_effects[,1]), 
-                         breaks = c(0, 0.1, 0.3, 0.5, Inf),
-                         labels = c("Weak", "Moderate", "Strong", "Very Strong"))
-) %>%
-  arrange(desc(abs(CPUE_Effect)))
-
-print(covariate_summary)
-
-# Key statistics for interpretation
-cat("\n=== KEY INTERPRETATION POINTS ===\n")
-cat(sprintf("• Average absolute effect: %.3f\n", mean(abs(covariate_effects))))
-cat(sprintf("• Strongest positive effect: %s (%.3f)\n", 
-            rownames(covariate_effects)[which.max(covariate_effects)],
-            max(covariate_effects)))
-cat(sprintf("• Strongest negative effect: %s (%.3f)\n", 
-            rownames(covariate_effects)[which.min(covariate_effects)],
-            min(covariate_effects)))
-cat(sprintf("• Rivers with positive CPUE effects: %d out of %d\n", 
-            sum(covariate_effects > 0), nrow(covariate_effects)))
-cat(sprintf("• Rivers with negative CPUE effects: %d out of %d\n", 
-            sum(covariate_effects < 0), nrow(covariate_effects)))
-
-# Model improvement metrics
-cat("\n=== MODEL IMPROVEMENT WITH CPUE ===\n")
-cat(sprintf("• Model with CPUE AIC: %.2f\n", best_model_total$AIC))
-cat(sprintf("• Model without covariates AIC: %.2f\n", no_covariates$AIC))
-cat(sprintf("• AIC improvement: %.2f (lower is better)\n", 
-            no_covariates$AIC - best_model_total$AIC))
-
-# Create covariate effects visualization
-covariate_plot <- ggplot(covariate_summary, aes(x = reorder(Management_River, CPUE_Effect), 
-                                                y = CPUE_Effect, 
-                                                fill = Effect_Direction)) +
-  geom_col() +
-  coord_flip() +
-  scale_fill_manual(values = c("Positive" = "coral", "Negative" = "steelblue")) +
-  geom_hline(yintercept = 0, linetype = "dashed", alpha = 0.7) +
-  labs(
-    title = "CPUE Covariate Effects by Management River",
-    subtitle = "Effect of CPUE on total run proportion",
-    x = "Management River",
-    y = "CPUE Effect Coefficient",
-    fill = "Effect Direction"
-  ) +
-  theme_minimal(base_size = 12) +
-  theme(
-    plot.title = element_text(face = "bold", hjust = 0.5),
-    plot.subtitle = element_text(hjust = 0.5),
-    legend.position = "bottom",
-    panel.grid.minor = element_blank(),
-    legend.title = element_text(face = "bold")
-  )
-
-ggsave(file.path(FIGURE_PATH, "cpue_covariate_effects_interpretation.png"), 
-       covariate_plot, width = 10, height = 8, dpi = 300, bg = "white")
-print(covariate_plot)
-
-# ============================================================================
-# 8. CREATE TIME LABELS
-# ============================================================================
+colnames(Z_total) <- paste("Trend", 1:2)
 
 # Create time labels including Q0
-years <- rep(2017:2021, each = 5)  # 5 quarters per year (Q0, Q1, Q2, Q3, Q4)
-quarters <- rep(0:4, times = 5)
+years <- rep(2017:2021, each = 4)  # 4 quarters per year (Q1, Q2, Q3, Q4)
+quarters <- rep(1:4, times = 5)
 time_labels <- paste0(years, "-Q", quarters)
 time_labels_used <- time_labels[1:ncol(trends_total)]
 
-# ============================================================================
-# 9. PLOT DFA RESULTS (WITHIN_PROP STYLE)
-# ============================================================================
 
-# Create color palette for trends
-trend_colors <- c("#E31A1C", "#1F78B4", "#33A02C", "#FF7F00")  # Red, Blue, Green, Orange
+# ============================================================================
+# 5. CREATE TREND PLOTS WITH QUARTILE-COLORED POINTS
+# ============================================================================
+cat("Creating trend visualizations...\n")
 
-for (i in 1:4) {
+# Create color palette for quartiles
+quartile_colors <- c("#E31A1C", "#1F78B4", "#33A02C", "#FF7F00")  # Q1=Red, Q2=Blue, Q3=Green, Q4=Orange
+
+for (i in 1:2) {  # Using 2-trend model as determined by model selection
   cat(sprintf("Creating plots for Trend %d...\n", i))
   
-  # Trend time series data
+  # Trend time series data with quartile information
   trend_data <- data.frame(
     time = 1:ncol(trends_total),
     value = trends_total[i, ],
-    time_label = time_labels_used
+    time_label = time_labels_used,
+    quartile = rep(c("Q1", "Q2", "Q3", "Q4"), length.out = ncol(trends_total))
   )
   
-  # Trend plot - styled like within_prop
+  # Trend plot with quartile-colored points
   trend_plot <- ggplot(trend_data, aes(x = time, y = value)) +
-    geom_line(color = trend_colors[i], linewidth = 1.5) +
-    geom_point(color = trend_colors[i], size = 3, alpha = 0.8) +
+    geom_line(color = "black", linewidth = 1.5) +
+    geom_point(aes(color = quartile), size = 3, alpha = 0.8) +
+    scale_color_manual(
+      values = setNames(quartile_colors, c("Q1", "Q2", "Q3", "Q4")),
+      name = "Quartile"
+    ) +
     geom_hline(yintercept = 0, linetype = "dashed", alpha = 0.6, color = "gray50") +
     scale_x_continuous(breaks = trend_data$time, labels = trend_data$time_label) +
     labs(
@@ -575,14 +332,14 @@ for (i in 1:4) {
       plot.title = element_text(face = "bold", size = 14, hjust = 0.5),
       axis.text.x = element_text(angle = 45, hjust = 1, size = 10),
       panel.grid.minor = element_blank(),
-      panel.border = element_rect(color = "gray80", fill = NA, linewidth = 0.5)
+      panel.border = element_rect(color = "gray80", fill = NA, linewidth = 0.5),
+      legend.position = "bottom"
     )
   
-  # Loadings data
+  # Loadings plot
   loading_data <- data.frame(Unit = rownames(Z_total), Loading = Z_total[, i]) %>%
     arrange(desc(abs(Loading)))
   
-  # Loadings plot - styled like within_prop
   loadings_plot <- ggplot(loading_data, aes(x = reorder(Unit, Loading), 
                                             y = Loading, fill = Loading > 0)) +
     geom_col() +
@@ -622,10 +379,9 @@ for (i in 1:4) {
 }
 
 # ============================================================================
-# 10. CREATE COMPREHENSIVE SPATIAL MAPS
+# 6. CREATE SPATIAL MAPS (CORRECTED VERSION)
 # ============================================================================
-
-cat("\n=== CREATING SPATIAL MAPS ===\n")
+cat("Creating spatial maps...\n")
 
 # Load spatial data
 tryCatch({
@@ -636,19 +392,24 @@ tryCatch({
   
   if ("mgmt_river" %in% colnames(edges)) {
     
-    for (trend_num in 1:4) {
+    for (trend_num in 1:best_m) {
       cat(paste("Creating comprehensive map for Trend", trend_num, "\n"))
       
-      # Trend time series plot
+      # Trend time series plot for spatial map (CORRECTED: using trends_total)
       trend_data <- data.frame(
         time = 1:length(trends_total[trend_num, ]),
         value = as.numeric(trends_total[trend_num, ]),
-        time_label = time_labels_used
+        time_label = time_labels_used,
+        quartile = rep(c("Q1", "Q2", "Q3", "Q4"), length.out = length(trends_total[trend_num, ]))
       )
       
       trend_plot <- ggplot(trend_data, aes(x = time, y = value)) +
-        geom_line(color = trend_colors[trend_num], linewidth = 1.8, alpha = 0.9) +
-        geom_point(color = trend_colors[trend_num], size = 3.5, alpha = 0.9) +
+        geom_line(color = "black", linewidth = 1.8, alpha = 0.9) +
+        geom_point(aes(color = quartile), size = 3.5, alpha = 0.9) +
+        scale_color_manual(
+          values = setNames(quartile_colors, c("Q1", "Q2", "Q3", "Q4")),
+          name = "Quartile"
+        ) +
         geom_hline(yintercept = 0, linetype = "dashed", alpha = 0.6, color = "gray50") +
         scale_x_continuous(breaks = trend_data$time, labels = trend_data$time_label) +
         labs(
@@ -661,16 +422,18 @@ tryCatch({
           plot.title = element_text(face = "bold", size = 14, hjust = 0.5),
           axis.text.x = element_text(angle = 45, hjust = 1, size = 10),
           panel.grid.minor = element_blank(),
-          panel.border = element_rect(color = "gray80", fill = NA, linewidth = 0.5)
+          panel.border = element_rect(color = "gray80", fill = NA, linewidth = 0.5),
+          legend.position = "bottom"
         )
       
-      # Prepare spatial data with loadings
+      # Prepare spatial data with loadings (CORRECTED: using Z_total)
       loadings_data <- data.frame(
         mgmt_river = rownames(Z_total),
         loading = Z_total[, trend_num],
         stringsAsFactors = FALSE
       )
       
+      # Join with spatial data
       edges_with_loadings <- edges %>%
         left_join(loadings_data, by = "mgmt_river") %>%
         filter(!is.na(mgmt_river) & mgmt_river != "") %>%
@@ -682,10 +445,13 @@ tryCatch({
       
       # Create spatial map
       if (nrow(edges_with_loadings) > 0) {
+        
+        # Ensure consistent CRS
         if (st_crs(basin) != st_crs(edges_with_loadings)) {
           basin <- st_transform(basin, st_crs(edges_with_loadings))
         }
         
+        # Create the map
         map_plot <- ggplot() +
           geom_sf(data = basin, fill = "gray95", color = "gray70", 
                   linewidth = 0.5, alpha = 0.3) +
@@ -693,9 +459,10 @@ tryCatch({
                   aes(color = loading, linewidth = stream_order), 
                   alpha = 0.8) +
           scale_color_gradient2(
-            low = "steelblue", mid = "white", high = "coral", midpoint = 0,
+            low = "blue", mid = "white", high = "red", midpoint = 0,
             name = "Loading\nValue",
-            limits = c(-max(abs(loadings_data$loading)), max(abs(loadings_data$loading)))
+            limits = c(-max(abs(loadings_data$loading)), max(abs(loadings_data$loading))),
+            labels = function(x) sprintf("%.2f", x)
           ) +
           scale_linewidth_continuous(
             range = c(0.3, 3.0), 
@@ -704,18 +471,21 @@ tryCatch({
           coord_sf(datum = NA) +
           labs(
             title = paste("Trend", trend_num, "Spatial Loadings"),
-            subtitle = "Rivers colored by loading values (blue = negative, red = positive)"
+            subtitle = "Rivers colored by loading values (blue = negative, red = positive)",
+            caption = "Line thickness represents stream order"
           ) +
           theme_void() +
           theme(
             plot.title = element_text(face = "bold", size = 14, hjust = 0.5),
             plot.subtitle = element_text(size = 12, hjust = 0.5),
+            plot.caption = element_text(size = 10, hjust = 0.5),
             legend.position = "right",
+            legend.title = element_text(face = "bold", size = 10),
             panel.background = element_rect(fill = "white", color = NA),
             plot.background = element_rect(fill = "white", color = NA)
           )
         
-        # Save combined map
+        # Save combined figure
         filename <- file.path(MAP_PATH, paste0("total_run_proportion_trend_", trend_num, "_comprehensive_map.png"))
         
         png(filename, width = 16, height = 8, units = "in", res = 300, bg = "white")
@@ -727,8 +497,10 @@ tryCatch({
                          gp = gpar(fontsize = 16, fontface = "bold"))
         )
         dev.off()
-        
         cat(paste("Saved:", filename, "\n"))
+        
+      } else {
+        cat(paste("No spatial data available for Trend", trend_num, "\n"))
       }
     }
     
@@ -739,153 +511,3 @@ tryCatch({
 }, error = function(e) {
   cat("Error loading spatial data:", e$message, "\n")
 })
-
-# ============================================================================
-# 11. CREATE SUMMARY PLOTS
-# ============================================================================
-
-# All trends in one plot
-all_trends_data <- data.frame()
-for(i in 1:4) {
-  trend_data <- data.frame(
-    time = 1:ncol(trends_total),
-    value = trends_total[i, ],
-    trend = paste("Trend", i),
-    time_label = time_labels_used
-  )
-  all_trends_data <- rbind(all_trends_data, trend_data)
-}
-
-# All trends plot
-all_trends_plot <- ggplot(all_trends_data, aes(x = time, y = value, color = trend)) +
-  geom_line(linewidth = 1.2) +
-  geom_point(size = 2.5, alpha = 0.8) +
-  geom_hline(yintercept = 0, linetype = "dashed", alpha = 0.6, color = "gray50") +
-  scale_color_manual(values = trend_colors) +
-  scale_x_continuous(breaks = unique(all_trends_data$time), 
-                     labels = unique(all_trends_data$time_label)) +
-  labs(
-    title = "All Total Run Proportion Trends",
-    subtitle = "Four common trends underlying salmon timing patterns",
-    x = "Year-Quarter",
-    y = "Trend Value",
-    color = "Trend"
-  ) +
-  theme_minimal(base_size = 12) +
-  theme(
-    plot.title = element_text(face = "bold", size = 14, hjust = 0.5),
-    plot.subtitle = element_text(hjust = 0.5),
-    axis.text.x = element_text(angle = 45, hjust = 1),
-    legend.position = "bottom",
-    panel.grid.minor = element_blank(),
-    panel.border = element_rect(color = "gray80", fill = NA, linewidth = 0.5),
-    legend.title = element_text(face = "bold")
-  )
-
-ggsave(file.path(FIGURE_PATH, "all_trends_summary.png"), 
-       all_trends_plot, width = 12, height = 8, dpi = 300, bg = "white")
-print(all_trends_plot)
-
-# All loadings in one plot
-all_loadings_data <- data.frame()
-for(i in 1:4) {
-  loading_data <- data.frame(
-    river = rownames(Z_total),
-    loading = Z_total[, i],
-    trend = paste("Trend", i)
-  )
-  all_loadings_data <- rbind(all_loadings_data, loading_data)
-}
-
-all_loadings_plot <- ggplot(all_loadings_data, aes(x = river, y = loading, fill = trend)) +
-  geom_col(position = "dodge") +
-  coord_flip() +
-  scale_fill_manual(values = trend_colors) +
-  geom_hline(yintercept = 0, linetype = "dashed", alpha = 0.6, color = "gray50") +
-  labs(
-    title = "All Trend Loadings by Management River",
-    subtitle = "How strongly each river loads on each trend",
-    x = "Management River",
-    y = "Loading Value",
-    fill = "Trend"
-  ) +
-  theme_minimal(base_size = 12) +
-  theme(
-    plot.title = element_text(face = "bold", size = 14, hjust = 0.5),
-    plot.subtitle = element_text(hjust = 0.5),
-    legend.position = "bottom",
-    panel.grid.minor = element_blank(),
-    panel.border = element_rect(color = "gray80", fill = NA, linewidth = 0.5),
-    legend.title = element_text(face = "bold")
-  )
-
-ggsave(file.path(FIGURE_PATH, "all_loadings_summary.png"), 
-       all_loadings_plot, width = 12, height = 10, dpi = 300, bg = "white")
-print(all_loadings_plot)
-
-# ============================================================================
-# 12. SAVE MODEL RESULTS AND SUMMARY
-# ============================================================================
-
-# Save model results
-model_summary <- list(
-  model = best_model_total,
-  trends = trends_total,
-  loadings = Z_total,
-  covariate_effects = covariate_effects,
-  covariate_summary = covariate_summary,
-  aic_comparison = aic_values,
-  variance_comparison = aic_values_variance,
-  scaling_params = scaling_params
-)
-
-saveRDS(model_summary, file.path(FIGURE_PATH, "total_run_proportion_dfa_results.rds"))
-
-# Create and save summary table
-summary_table <- data.frame(
-  Trend = paste("Trend", 1:4),
-  Explained_Variance = round(apply(Z_total^2, 2, sum) / sum(Z_total^2) * 100, 1),
-  Primary_Rivers = sapply(1:4, function(i) {
-    top_rivers <- rownames(Z_total)[order(abs(Z_total[,i]), decreasing = TRUE)[1:3]]
-    paste(top_rivers, collapse = ", ")
-  }),
-  Trend_Direction = sapply(1:4, function(i) {
-    trend_vals <- trends_total[i,]
-    if(trend_vals[length(trend_vals)] > trend_vals[1]) "Increasing" else "Decreasing"
-  })
-)
-
-write.csv(summary_table, file.path(FIGURE_PATH, "total_run_proportion_summary_table.csv"), 
-          row.names = FALSE)
-
-cat("\n=== SUMMARY TABLE ===\n")
-print(summary_table)
-
-# ============================================================================
-# 13. FINAL SUMMARY
-# ============================================================================
-
-cat("\n=== ANALYSIS COMPLETE ===\n")
-cat("✓ Data prepared with Q0 entries\n")
-cat("✓ Covariate models compared\n")
-cat("✓ Variance structures compared\n")
-cat("✓ Best DFA model fitted (4 states with CPUE covariate)\n")
-cat("✓ Varimax rotation applied\n")
-cat("✓ Covariate effects analyzed and visualized\n")
-cat("✓ Individual trend plots created\n")
-cat("✓ Summary plots created\n")
-cat("✓ Spatial maps generated\n")
-cat("✓ Results saved to organized folders\n")
-cat(sprintf("\nAll outputs saved to: %s\n", FIGURE_PATH))
-cat(sprintf("Maps saved to: %s\n", MAP_PATH))
-
-# Print final interpretation
-cat("\n=== INTERPRETATION FOR WRITE-UP ===\n")
-cat("The inclusion of CPUE as a covariate significantly improved model fit, with an AIC\n")
-cat(sprintf("improvement of %.1f points. CPUE effects varied across management rivers,\n", 
-            no_covariates$AIC - best_model_total$AIC))
-cat(sprintf("with %d rivers showing positive relationships and %d showing negative relationships\n", 
-            sum(covariate_effects > 0), sum(covariate_effects < 0)))
-cat("between CPUE and total run proportion. This suggests that CPUE is an important\n")
-cat("environmental driver that influences the relative timing and magnitude of salmon\n")
-cat("runs across different management units in the system.\n")
