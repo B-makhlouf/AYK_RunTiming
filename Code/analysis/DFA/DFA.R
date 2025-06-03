@@ -279,6 +279,13 @@ fourState <- MARSS(proportion_total_matrix_scaled,
                    method = "BFGS",
                    silent = TRUE)
 
+# First, calculate R² for 1-state model
+Z1 <- coef(oneState, type = "matrix")$Z
+y_hat1 <- Z1 %*% oneState$states
+SSR1 <- sum((y_obs - y_hat1)^2, na.rm = TRUE)
+SST <- sum((y_obs - rowMeans(y_obs, na.rm = TRUE))^2, na.rm = TRUE)
+R2_1 <- 1 - (SSR1 / SST)
+
 
 # Two State Model
 Z2 <- coef(twoState, type = "matrix")$Z
@@ -353,167 +360,39 @@ ggplot(plot_data4, aes(x = Time, y = Value, color = Type)) +
        x = "Time", y = "Proportion Values", color = "Data Type") +
   theme_minimal() + theme(legend.position = "bottom")
 
-# ============================================================================
-# Plot results 
-# ============================================================================
 
-# First, extract the rotated results from your best model
-# You'll need to determine which model is best based on AIC comparison
-# For this example, I'll use the twoState model, but adjust as needed
+# Calculate Partial R² values
+# Partial R² = (R²_full - R²_reduced) / (1 - R²_reduced)
 
-# Choose your best model (replace 'twoState' with your selected model)
-best_model <- twoState  # Change this to oneState, threeState, or fourState as needed
-n_states <- 2          # Change this to match your chosen model (1, 2, 3, or 4)
+partial_R2_2vs1 <- (R2_2 - R2_1) / (1 - R2_1)  # 2nd state vs 1st state
+partial_R2_3vs2 <- (R2_3 - R2_2) / (1 - R2_2)  # 3rd state vs 2nd state  
+partial_R2_4vs3 <- (R2_4 - R2_3) / (1 - R2_3)  # 4th state vs 3rd state
 
-# Get the rotated results using the correct MARSS function
-# First get the model estimates
-Z_est <- coef(best_model, type = "matrix")$Z
-states <- best_model$states
+model_comparison <- data.frame(
+  Model = c("1 State", "2 State", "3 State", "4 State"),
+  R_squared = round(c(R2_1, R2_2, R2_3, R2_4), 4),
+  Partial_R_squared = c(NA, 
+                        round(partial_R2_2vs1, 4),
+                        round(partial_R2_3vs2, 4), 
+                        round(partial_R2_4vs3, 4)),
+  Variance_Explained = round(c(R2_1, R2_2, R2_3, R2_4) * 100, 1),
+  Additional_Variance = c(round(R2_1 * 100, 1),
+                          round((R2_2 - R2_1) * 100, 1),
+                          round((R2_3 - R2_2) * 100, 1),
+                          round((R2_4 - R2_3) * 100, 1))
+)
 
-# For DFA, we need to rotate the results for interpretability
-# Use varimax rotation
-H_inv <- varimax(Z_est)$rotmat
-Z_rot <- Z_est %*% H_inv
-proc_rot <- solve(H_inv) %*% states
+# Print results
+cat("=== DFA Model Comparison ===\n")
+print(model_comparison)
 
-# Set up your variables to match the original example
-ylbl <- rownames(proportion_total_matrix_scaled)
-w_ts <- seq(dim(proportion_total_matrix_scaled)[2])
-mm <- n_states
-N_ts <- length(ylbl)
-clr <- river_colors[ylbl]
+# Model R_squared Partial_R_squared Variance_Explained Additional_Variance
+# 1 1 State    0.6484                NA               64.8                64.8
+# 2 2 State    0.9244            0.7851               92.4                27.6
+# 3 3 State    0.9518            0.3625               95.2                 2.7
+# 4 4 State    0.9563            0.0939               95.6                 0.5
 
-layout(matrix(1:(mm*2), mm, 2), widths = c(2, 1))
-
-par(mai = c(0.5, 0.5, 0.5, 0.1), omi = c(0, 0, 0, 0))
-## plot the processes
-for (i in 1:mm) {
-  ylm <- c(-1, 1) * max(abs(proc_rot[i, ]))
-  ## set up plot area
-  plot(w_ts, proc_rot[i, ], type = "n", bty = "L", ylim = ylm, 
-       xlab = "", ylab = "", xaxt = "n")
-  ## draw zero-line
-  abline(h = 0, col = "gray")
-  ## plot trend line
-  lines(w_ts, proc_rot[i, ], lwd = 2)
-  lines(w_ts, proc_rot[i, ], lwd = 2)
-  ## add panel labels
-  mtext(paste("State", i), side = 3, line = 0.5)
-  axis(1, seq(1, dim(proportion_total_matrix_scaled)[2], by = 4), unique(scaled_data_long$year))
-}
-
-
-## plot the loadings
-minZ <- 0
-ylm <- c(-1, 1) * max(abs(Z_rot))
-for (i in 1:mm) {
-  plot(c(1:N_ts)[abs(Z_rot[, i]) > minZ], as.vector(Z_rot[abs(Z_rot[, 
-                                                                    i]) > minZ, i]), type = "h", lwd = 2, xlab = "", ylab = "", 
-       xaxt = "n", ylim = ylm, xlim = c(0.5, N_ts + 0.5), col = clr)
-  for (j in 1:N_ts) {
-    if (Z_rot[j, i] > minZ) {
-      text(j, -0.03, ylbl[j], srt = 90, adj = 1, cex = 1.2, 
-           col = clr[j])
-    }
-    if (Z_rot[j, i] < -minZ) {
-      text(j, 0.03, ylbl[j], srt = 90, adj = 0, cex = 1.2, 
-           col = clr[j])
-    }
-    abline(h = 0, lwd = 1.5, col = "gray")
-  }
-  mtext(paste("Factor loadings on state", i), side = 3, line = 0.5)
-}
-
-
-#================ Plotting Model fit 
-get_DFA_fits <- function(MLEobj, dd = NULL, alpha = 0.05) {
-  ## empty list for results
-  fits <- list()
-  ## extra stuff for var() calcs
-  Ey <- MARSS:::MARSShatyt(MLEobj)
-  ## model params
-  ZZ <- coef(MLEobj, type = "matrix")$Z
-  ## number of obs ts
-  nn <- dim(Ey$ytT)[1]
-  ## number of time steps
-  TT <- dim(Ey$ytT)[2]
-  ## get the inverse of the rotation matrix
-  H_inv <- varimax(ZZ)$rotmat
-  ## check for covars
-  if (!is.null(dd)) {
-    DD <- coef(MLEobj, type = "matrix")$D
-    ## model expectation
-    fits$ex <- ZZ %*% H_inv %*% MLEobj$states + DD %*% dd
-  } else {
-    ## model expectation
-    fits$ex <- ZZ %*% H_inv %*% MLEobj$states
-  }
-  ## Var in model fits
-  VtT <- MARSSkfss(MLEobj)$VtT
-  VV <- NULL
-  for (tt in 1:TT) {
-    RZVZ <- coef(MLEobj, type = "matrix")$R - ZZ %*% VtT[, 
-                                                         , tt] %*% t(ZZ)
-    SS <- Ey$yxtT[, , tt] - Ey$ytT[, tt, drop = FALSE] %*% 
-      t(MLEobj$states[, tt, drop = FALSE])
-    VV <- cbind(VV, diag(RZVZ + SS %*% t(ZZ) + ZZ %*% t(SS)))
-  }
-  ## Handle negative variances by setting them to a small positive value
-  VV[VV < 0] <- 1e-6
-  SE <- sqrt(VV)
-  ## upper & lower (1-alpha)% CI
-  fits$up <- qnorm(1 - alpha/2) * SE + fits$ex
-  fits$lo <- qnorm(alpha/2) * SE + fits$ex
-  return(fits)
-}
-
-mod_fit <- get_DFA_fits(twoState)
-ylbl <- rownames(proportion_total_matrix_scaled)
-# First, determine the overall y-axis limits
-all_up <- as.vector(mod_fit$up)
-all_lo <- as.vector(mod_fit$lo)
-all_data <- as.vector(proportion_total_matrix_scaled)
-y_limits <- c(min(c(all_lo, all_data), na.rm = TRUE), 
-              max(c(all_up, all_data), na.rm = TRUE))
-
-# Set up the plot
-plot(w_ts, rep(0, length(w_ts)), xlab = "Year", ylab = "Scaled Proportion", 
-     xaxt = "n", type = "n", cex.lab = 1.2, ylim = y_limits,
-     main = "DFA Model Fits for All Rivers")
-axis(1, seq(1, dim(proportion_total_matrix_scaled)[2], by = 4), unique(scaled_data_long$year))
-
-# Plot each river
-for (i in 1:N_ts) {
-  up <- mod_fit$up[i, ]
-  mn <- mod_fit$ex[i, ]
-  lo <- mod_fit$lo[i, ]
-  
-  # Plot confidence intervals as polygons (optional, or use lines)
-  polygon(c(w_ts, rev(w_ts)), c(up, rev(lo)), 
-          col = adjustcolor(clr[i], alpha = 0.2), border = NA)
-  
-  # Plot data points and fitted line
-  points(w_ts, proportion_total_matrix_scaled[i, ], pch = 16, col = clr[i], cex = 0.8)
-  lines(w_ts, mn, col = clr[i], lwd = 2)
-}
-
-# Add legend
-legend("topright", legend = ylbl, col = clr, lwd = 2, pch = 16, 
-       cex = 0.8, ncol = 2)
-
-
-
-
-
-
-
-
-
-
-
-
-
-
+#### BEST MODEL IS 2 states 
 
 
 # ============================================================================
@@ -521,20 +400,18 @@ legend("topright", legend = ylbl, col = clr, lwd = 2, pch = 16,
 # ============================================================================
 
 r_equal <- MARSS(proportion_total_matrix,
-                 model = list(m = 4, R = "diagonal and equal"),
+                 model = list(m = 2, R = "diagonal and equal"),
                  z.score = TRUE,
                  form = "dfa",
                  control = list(maxit = 50000), 
-                 covariates = cpue_cov,
                  method = "BFGS",
                  silent = TRUE)
 
 r_diagonal <- MARSS(proportion_total_matrix,
-                    model = list(m = 4, R = "diagonal and unequal"),
+                    model = list(m = 2, R = "diagonal and unequal"),
                     z.score = TRUE,
                     form = "dfa",
                     control = list(maxit = 50000), 
-                    covariates = cpue_cov,
                     method = "BFGS",
                     silent = TRUE)
 
@@ -543,7 +420,6 @@ r_equalcov <- MARSS(proportion_total_matrix,
                     z.score = TRUE,
                     form = "dfa",
                     control = list(maxit = 50000), 
-                    covariates = cpue_cov,
                     method = "kem",
                     silent = TRUE)
 
@@ -562,12 +438,11 @@ print(aic_values_variance)
 # ============================================================================
 
 best_model_total <- MARSS(proportion_total_matrix,
-                          model = list(m = 4, R = "diagonal and unequal"),
+                          model = list(m = 4, R = "equalvarcov"),
                           z.score = FALSE,
                           form = "dfa", 
-                          covariates = cpue_cov,
                           control = list(maxit = 50000), 
-                          method = "BFGS")
+                          method = "kem")
 
 # Extract and rotate results
 trends_total_orig <- best_model_total$states
