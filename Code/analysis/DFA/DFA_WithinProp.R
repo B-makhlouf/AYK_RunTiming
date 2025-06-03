@@ -98,7 +98,7 @@ p1 <- ggplot(within_quartile_data, aes(x = Time_Continuous, y = within_quartile_
     breaks = seq(min(within_quartile_data$year) - 0.25, max(within_quartile_data$year) + 1, by = 1),
     labels = function(x) {
       # Label Q0 points and full years
-      ifelse(x %% 1 == 0.75, paste0(floor(x + 0.25), "-Q0"), as.character(x))
+      ifelse(x %% 1 == 0.75, paste0(floor(x + 0.25)), as.character(x))
     }
   ) +
   scale_y_continuous(labels = scales::percent_format(scale = 1), limits = c(0, NA)) +
