@@ -308,6 +308,36 @@ print(model_comparison)
 # Select best model (adjust based on your criteria)
 best_m <- 2  # Adjust this based on model comparison results
 
+#==== Test R variance matrix for best model ====
+
+R_unequal<- MARSS(proportion_within_matrix_scaled,
+                model = list(m = best_m, R = "diagonal and unequal"),
+                z.score = FALSE,
+                form = "dfa",
+                control = list(maxit = 50000), 
+                method = "BFGS", 
+                silent = TRUE)
+
+R_equal <- MARSS(proportion_within_matrix_scaled,
+                model = list(m = best_m, R = "diagonal and equal"),
+                z.score = FALSE,
+                form = "dfa",
+                control = list(maxit = 50000), 
+                method = "BFGS", 
+                silent = TRUE)
+
+
+#Extract AIc
+AIC_unequal <- AIC(R_unequal)
+AIC_equal <- AIC(R_equal)
+
+
+#print AIC values
+cat("AIC for unequal R matrix:", AIC_unequal, "\n")
+cat("AIC for equal R matrix:", AIC_equal, "\n")
+
+
+
 # ============================================================================
 # 5. FIT BEST DFA MODEL WITH VARIMAX ROTATION
 # ============================================================================
