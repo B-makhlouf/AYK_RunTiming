@@ -53,3 +53,48 @@ protection_df <- closureSummary %>%
   ) %>%
   arrange(year, management_unit, harvest_rate)
 
+###################################################
+######### Figure 1. Ts protection for 30% by management unit 
+
+# Filter for 30% harvest scenario
+protection_30pct <- protection_df %>%
+  filter(harvest_rate == 0.3)  # 30% harvest rate
+
+# Create color palette for management units
+n_units <- length(unique(protection_30pct$management_unit))
+unit_colors <- if (n_units <= 12) {
+  brewer.pal(max(3, n_units), "Set3")
+} else {
+  colorRampPalette(brewer.pal(12, "Set3"))(n_units)
+}
+
+# Create the time series plot
+p1 <- ggplot(protection_30pct, aes(x = year, y = percent_improvement, color = management_unit)) +
+  geom_line(linewidth = 1.2, alpha = 0.8) +
+  geom_point(size = 2.5, alpha = 0.9) +
+  scale_color_manual(values = unit_colors, name = "Management\nUnit") +
+  scale_x_continuous(breaks = unique(protection_30pct$year)) +
+  scale_y_continuous(
+    labels = function(x) paste0(round(x, 1), "%"),
+    limits = c(0, max(protection_30pct$percent_improvement, na.rm = TRUE) * 1.05)
+  ) +
+  labs(
+    title = "Protection Effectiveness by Management Unit (30% Harvest Rate)",
+    subtitle = "Percent improvement in survival due to June 1-11 closure window",
+    x = "Year",
+    y = "Percent Improvement in Survival",
+    caption = "Higher values = closure more effective for that management unit"
+  ) +
+  theme_minimal(base_size = 12) +
+  theme(
+    plot.title = element_text(face = "bold", size = 14, hjust = 0.5),
+    plot.subtitle = element_text(size = 11, hjust = 0.5),
+    plot.caption = element_text(size = 10, hjust = 0.5, face = "italic"),
+    legend.position = "right",
+    panel.grid.minor = element_blank(),
+    axis.title = element_text(face = "bold"),
+    legend.title = element_text(face = "bold", size = 10)
+  )
+
+print(p1)
+
