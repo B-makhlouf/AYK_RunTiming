@@ -663,3 +663,177 @@ saveRDS(model_summary, file.path(FIGURE_PATH, "total_run_proportion_dfa_model_re
 cat("✓ Model results saved to RDS file\n")
 
 cat("\nTotal Run Proportion DFA Analysis Complete!\n")
+
+
+# ============================================================================
+# 9. COVARIATE EFFECTS VISUALIZATION
+# ============================================================================
+cat("Creating covariate effects plots...\n")
+
+# Extract covariate effects from the best model
+covariate_effects <- coef(best_model_total, type = "matrix")$D
+
+# Prepare covariate data (CPUE values over time)
+covariate_data <- data.frame(
+  time = 1:length(cpue_covariate),
+  cpue_prop = cpue_covariate,
+  time_label = time_labels_used,
+  quartile = rep(c("Q1", "Q2", "Q3", "Q4"), length.out = length(cpue_covariate))
+)
+
+# ============================================================================
+# PLOT 1: CPUE Covariate Time Series
+# ============================================================================
+
+cpue_plot <- ggplot(covariate_data, aes(x = time, y = cpue_prop)) +
+  geom_line(color = "darkgreen", linewidth = 1.5, alpha = 0.8) +
+  geom_point(aes(color = quartile), size = 3, alpha = 0.9) +
+  scale_color_manual(
+    values = quartile_colors,
+    name = "Quartile"
+  ) +
+  scale_x_continuous(breaks = covariate_data$time, labels = covariate_data$time_label) +
+  scale_y_continuous(labels = percent_format(scale = 1)) +
+  labs(
+    title = "CPUE Covariate Over Time",
+    subtitle = "Proportion of annual run occurring in each quartile",
+    x = "Year-Quarter",
+    y = "CPUE Proportion (%)"
+  ) +
+  theme_minimal(base_size = 12) +
+  theme(
+    plot.title = element_text(face = "bold", size = 14, hjust = 0.5),
+    plot.subtitle = element_text(size = 11, hjust = 0.5),
+    axis.text.x = element_text(angle = 45, hjust = 1, size = 10),
+    panel.grid.minor = element_blank(),
+    panel.border = element_rect(color = "gray80", fill = NA, linewidth = 0.5),
+    legend.position = "bottom"
+  )
+
+# ============================================================================
+# PLOT 2: Covariate Effects by Management River
+# ============================================================================
+
+# Prepare covariate effects data
+effects_data <- data.frame(
+  mgmt_river = rownames(Z_total),
+  covariate_effect = covariate_effects[, 1],  # Extract first (and only) covariate column
+  stringsAsFactors = FALSE
+) %>%
+  arrange(desc(abs(covariate_effect)))
+
+effects_plot <- ggplot(effects_data, aes(x = reorder(mgmt_river, covariate_effect), 
+                                         y = covariate_effect, 
+                                         fill = covariate_effect > 0)) +
+  geom_col(alpha = 0.8) +
+  coord_flip() +
+  scale_fill_manual(
+    values = c("FALSE" = "steelblue", "TRUE" = "coral"),
+    name = "Effect Direction",
+    labels = c("Negative", "Positive")
+  ) +
+  geom_hline(yintercept = 0, linetype = "dashed", alpha = 0.6, color = "gray50") +
+  labs(
+    title = "CPUE Covariate Effects by Management River",
+    subtitle = "How CPUE influences each management river's run timing patterns",
+    x = "Management River",
+    y = "Covariate Effect",
+    caption = "Positive = higher CPUE increases this river's relative contribution"
+  ) +
+  theme_minimal(base_size = 12) +
+  theme(
+    plot.title = element_text(face = "bold", size = 14, hjust = 0.5),
+    plot.subtitle = element_text(size = 11, hjust = 0.5),
+    plot.caption = element_text(size = 10, hjust = 0.5, face = "italic"),
+    legend.position = "bottom",
+    panel.grid.minor = element_blank(),
+    panel.border = element_rect(color = "gray80", fill = NA, linewidth = 0.5),
+    legend.title = element_text(face = "bold")
+  )
+
+# ============================================================================
+# SAVE INDIVIDUAL PLOTS
+# ============================================================================
+
+# Save CPUE time series plot
+ggsave(file.path(FIGURE_PATH, "cpue_covariate_timeseries.png"), 
+       cpue_plot, width = 12, height = 6, dpi = 300, bg = "white")
+
+# Save covariate effects plot
+ggsave(file.path(FIGURE_PATH, "cpue_covariate_effects_by_river.png"), 
+       effects_plot, width = 10, height = 8, dpi = 300, bg = "white")
+
+# ============================================================================
+# COMBINED COVARIATE EFFECTS FIGURE
+# ============================================================================
+
+combined_covariate_plot <- grid.arrange(
+  cpue_plot, effects_plot,
+  ncol = 2,
+  widths = c(1.2, 1),
+  top = textGrob("CPUE Covariate Effects Analysis", 
+                 gp = gpar(fontsize = 16, fontface = "bold"))
+)
+
+# Save combined plot
+ggsave(file.path(FIGURE_PATH, "combined_cpue_covariate_effects.png"), 
+       combined_covariate_plot, width = 16, height = 8, dpi = 300, bg = "white")
+
+# Print plots
+print(cpue_plot)
+print(effects_plot)
+
+# ============================================================================
+# SUMMARY STATISTICS
+# ============================================================================
+
+cat("\n=== COVARIATE EFFECTS SUMMARY ===\n")
+cat("CPUE Covariate Statistics:\n")
+cat(sprintf("  - Range: %.3f to %.3f\n", min(cpue_covariate), max(cpue_covariate)))
+cat(sprintf("  - Mean: %.3f\n", mean(cpue_covariate)))
+cat(sprintf("  - Standard Deviation: %.3f\n", sd(cpue_covariate)))
+
+cat("\nCovariate Effects by River:\n")
+cat("Top 3 Positive Effects:\n")
+print(effects_data %>% filter(covariate_effect > 0) %>% slice_head(n = 3))
+
+cat("\nTop 3 Negative Effects:\n")
+print(effects_data %>% filter(covariate_effect < 0) %>% slice_head(n = 3))
+
+cat("\nCovariate plots saved to:", FIGURE_PATH, "\n")
+
+# ============================================================================
+# MODEL COMPARISON SUMMARY WITH COVARIATE
+# ============================================================================
+
+cat("\n=== MODEL COMPARISON SUMMARY ===\n")
+cat("AIC Comparison:\n")
+cat(sprintf("  - Model without CPUE: %.2f\n", AIC_no_cpue))
+cat(sprintf("  - Model with CPUE: %.2f\n", AIC_with_cpue))
+cat(sprintf("  - AIC Difference: %.2f\n", AIC_no_cpue - AIC_with_cpue))
+
+if (AIC_with_cpue < AIC_no_cpue) {
+  cat("✓ Including CPUE as covariate IMPROVES model fit\n")
+} else {
+  cat("⚠ Including CPUE as covariate does NOT improve model fit\n")
+}
+
+# Update model summary to include covariate information
+model_summary_with_covariate <- list(
+  best_n_states = best_m,
+  model_comparison = model_comparison,
+  trends = trends_total,
+  loadings = Z_total,
+  covariate_effects = covariate_effects,
+  covariate_data = covariate_data,
+  time_labels = time_labels_used,
+  AIC_comparison = data.frame(
+    Model = c("Without CPUE", "With CPUE"),
+    AIC = c(AIC_no_cpue, AIC_with_cpue),
+    Delta_AIC = c(0, AIC_with_cpue - AIC_no_cpue)
+  )
+)
+
+# Save updated model results
+saveRDS(model_summary_with_covariate, file.path(FIGURE_PATH, "total_run_proportion_dfa_model_results_with_covariate.rds"))
+cat("✓ Updated model results with covariate saved to RDS file\n")
