@@ -364,7 +364,7 @@ for (file in files_created) {
 }
 
 cat("\n=== Maps: No bar plots, DFA-style line widths ===\n")
-cat("=== Boxplots: Clean style with outliers only ===\n")))
+cat("=== Boxplots: Clean style with outliers only ===\n")
 
 # Save detailed statistics
 write_csv(detailed_stats, 
