@@ -50,7 +50,7 @@ clean_outputs <- function() {
 #' Get watershed-specific parameters
 get_params <- function(watershed) {
   if (watershed == "Kusko") {
-    list(sensitivity_threshold = 0.7, min_error = 0.0006, min_stream_order = 3)
+    list(sensitivity_threshold = 0.9, min_error = 0.0006, min_stream_order = 3)
   } else if (watershed == "Yukon") {
     list(sensitivity_threshold = 0.7, min_error = 0.003, min_stream_order = 5)
   } else {
