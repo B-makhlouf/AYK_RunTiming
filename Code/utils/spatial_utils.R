@@ -292,23 +292,70 @@ setup_watershed_priors <- function(edges, min_stream_order, watershed, natal_dat
 # DOY QUARTILE DIVISION
 ################################################################################
 
-#' Divide natal data into DOY quartiles
+#' Divide natal data into custom DOY quartiles
 divide_doy_quartiles <- function(natal_data) {
-  # Get DOY range and create even breaks
-  full_doy_range <- range(natal_data$DOY, na.rm = TRUE)
-  doy_breaks <- seq(full_doy_range[1], full_doy_range[2], length.out = 5)
-  
-  # Create quartile subsets
-  quartile_subsets <- list()
-  for (i in 1:4) {
-    quartile_subsets[[i]] <- natal_data %>% 
-      filter(DOY >= doy_breaks[i] & DOY < doy_breaks[i+1])
+  # Handle different date formats
+  if ("Date" %in% colnames(natal_data)) {
+    # Try to convert Date column to proper Date format
+    if (!inherits(natal_data$Date, "Date")) {
+      natal_data$Date <- as.Date(natal_data$Date)
+    }
+    year <- format(natal_data$Date[1], "%Y")
+  } else {
+    # Fall back to extracting year from DOY (assuming current approach)
+    # You'll need to specify which year this data represents
+    warning("No Date column found, using DOY. Please specify year manually.")
+    year <- "2020"  # Default - change this to match your data year
   }
   
-  # Create descriptive labels
-  subset_labels <- sapply(1:4, function(i) {
-    sprintf("DOY Q%d: %d-%d", i, ceiling(doy_breaks[i]), floor(doy_breaks[i+1]))
-  })
+  # Define fixed break dates for this year
+  june_11 <- as.Date(paste0(year, "-06-11"))
+  june_21 <- as.Date(paste0(year, "-06-21"))  
+  july_01 <- as.Date(paste0(year, "-07-01"))
+  
+  # Create quartile subsets using actual dates
+  if ("Date" %in% colnames(natal_data)) {
+    quartile_subsets <- list(
+      natal_data %>% filter(Date <= june_11),           # Q1: Start to Jun 11
+      natal_data %>% filter(Date > june_11 & Date <= june_21), # Q2: Jun 12-21
+      natal_data %>% filter(Date > june_21 & Date <= july_01), # Q3: Jun 22-Jul 1  
+      natal_data %>% filter(Date > july_01)             # Q4: Jul 2-End
+    )
+  } else {
+    # Fall back to DOY-based filtering
+    june_11_doy <- as.numeric(format(june_11, "%j"))
+    june_21_doy <- as.numeric(format(june_21, "%j"))
+    july_01_doy <- as.numeric(format(july_01, "%j"))
+    
+    quartile_subsets <- list(
+      natal_data %>% filter(DOY <= june_11_doy),           
+      natal_data %>% filter(DOY > june_11_doy & DOY <= june_21_doy), 
+      natal_data %>% filter(DOY > june_21_doy & DOY <= july_01_doy),  
+      natal_data %>% filter(DOY > july_01_doy)             
+    )
+  }
+  
+  # Convert to DOY for labels
+  june_11_doy <- as.numeric(format(june_11, "%j"))
+  june_21_doy <- as.numeric(format(june_21, "%j"))
+  july_01_doy <- as.numeric(format(july_01, "%j"))
+  
+  # Create labels
+  subset_labels <- c(
+    sprintf("DOY Q1: Start-%d (to Jun 11)", june_11_doy),
+    sprintf("DOY Q2: %d-%d (Jun 12-21)", june_11_doy + 1, june_21_doy),
+    sprintf("DOY Q3: %d-%d (Jun 22-Jul 1)", june_21_doy + 1, july_01_doy),
+    sprintf("DOY Q4: %d-End (Jul 2+)", july_01_doy + 1)
+  )
+  
+  # DOY breaks for compatibility
+  doy_breaks <- c(
+    min(natal_data$DOY, na.rm = TRUE),
+    june_11_doy,
+    june_21_doy, 
+    july_01_doy,
+    max(natal_data$DOY, na.rm = TRUE)
+  )
   
   return(list(
     subsets = quartile_subsets,
