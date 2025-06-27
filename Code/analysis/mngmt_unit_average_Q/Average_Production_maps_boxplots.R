@@ -2,7 +2,7 @@
 #                    AVERAGE MANAGEMENT UNIT PRODUCTION MAPS                  #
 ################################################################################
 # PURPOSE: Create maps that look EXACTLY like the existing DOY_Quartile/Management
-#          maps, but showing average production across all years (2017-2021)
+#          maps, but showing average production across all years (2017-2022)
 #
 # OUTPUTS: 
 #   - 4 maps (Q1-Q4) with identical styling to existing management maps
@@ -31,12 +31,12 @@ suppressPackageStartupMessages({
 DATA_PATH <- "/Users/benjaminmakhlouf/Research_repos/AYK_RunTiming/Analysis_Results/Management_River_Analysis/management_river_analysis_tidy.csv"
 SPATIAL_PATH <- "/Users/benjaminmakhlouf/Spatial Data/KuskoUSGS_HUC_joined.shp"
 BASIN_PATH <- "/Users/benjaminmakhlouf/Desktop/Research/isoscapes_new/Kusko/Kusko_basin.shp"
-OUTPUT_DIR <- "/Users/benjaminmakhlouf/Research_repos/AYK_RunTiming/Figures/Average_Management_Production"
+OUTPUT_DIR <- "/Users/benjaminmakhlouf/Research_repos/AYK_RunTiming/Figures/Average_Management_Production_2017_2022"
 
 # Create output directory
 dir.create(OUTPUT_DIR, recursive = TRUE, showWarnings = FALSE)
 
-cat("=== AVERAGE MANAGEMENT UNIT PRODUCTION ANALYSIS ===\n")
+cat("=== AVERAGE MANAGEMENT UNIT PRODUCTION ANALYSIS (2017-2022) ===\n")
 cat("Creating maps identical to DOY_Quartile/Management style\n")
 cat("Output directory:", OUTPUT_DIR, "\n")
 
@@ -59,7 +59,22 @@ mgmt_data <- read_csv(DATA_PATH) %>%
     )
   )
 
-cat("Loaded data for", length(unique(mgmt_data$year)), "years and", 
+# Check what years are available
+available_years <- sort(unique(mgmt_data$year))
+cat("Years available in data:", paste(available_years, collapse = ", "), "\n")
+
+# Check if 2022 data is present
+if (2022 %in% available_years) {
+  cat("✓ 2022 data found in dataset\n")
+  year_range <- "2017-2022"
+  years_included <- available_years
+} else {
+  cat("⚠ 2022 data not found - using available years only\n")
+  year_range <- paste0(min(available_years), "-", max(available_years))
+  years_included <- available_years
+}
+
+cat("Loaded data for", length(years_included), "years and", 
     length(unique(mgmt_data$mgmt_river)), "management units\n")
 
 # Load spatial data
@@ -94,7 +109,7 @@ cat("Calculated averages for", nrow(avg_production_by_quartile), "mgmt_unit × q
 cat("\n--- CREATING QUARTILE MAPS WITH ORIGINAL STYLING ---\n")
 
 #' Create management map identical to original DOY_Quartile/Management style
-create_average_mgmt_map <- function(quartile_data, quartile_label, output_filepath) {
+create_average_mgmt_map <- function(quartile_data, quartile_label, output_filepath, year_range) {
   
   # Create the PNG with dimensions for single map (no bar plot)
   png(file = output_filepath, width = 10, height = 8, units = "in", res = 300, bg = "white")
@@ -111,6 +126,7 @@ create_average_mgmt_map <- function(quartile_data, quartile_label, output_filepa
       line_width = pmax(0.3, pmin(3.0, 0.3 + (stream_order - min(stream_order, na.rm = TRUE)) * 
                                     (3.0 - 0.3) / (max(stream_order, na.rm = TRUE) - min(stream_order, na.rm = TRUE))))
     )
+  
   # Ensure consistent CRS
   if (st_crs(basin) != st_crs(edges_with_data)) {
     basin <- st_transform(basin, st_crs(edges_with_data))
@@ -141,7 +157,7 @@ create_average_mgmt_map <- function(quartile_data, quartile_label, output_filepa
     coord_sf(datum = NA) +
     labs(
       title = paste0("Average ", quartile_label, ": Management Rivers - Kusko Watershed"),
-      subtitle = "Average across all years (2017-2021)"
+      subtitle = paste("Average across all years (", year_range, ")", sep = "")
     ) +
     theme_void() +
     theme(
@@ -175,10 +191,10 @@ for (q in c("Q1", "Q2", "Q3", "Q4")) {
     filter(!is.na(production_proportion))
   
   # Create map with exact original styling
-  map_filename <- paste0("Average_", q, "_Management_2017_2021.png")
+  map_filename <- paste0("Average_", q, "_Management_", year_range, ".png")
   map_filepath <- file.path(OUTPUT_DIR, map_filename)
   
-  create_average_mgmt_map(quartile_data, q, map_filepath)
+  create_average_mgmt_map(quartile_data, q, map_filepath, year_range)
 }
 
 cat("✓ All average quartile maps created with original styling\n")
@@ -272,10 +288,10 @@ for (q in c("Q1", "Q2", "Q3", "Q4")) {
     ) +
     # Flip coordinates for better readability
     coord_flip() +
-    # Labels and theme
+    # Labels and theme - UPDATE THE SUBTITLE TO INCLUDE ACTUAL YEARS
     labs(
       title = paste("Management Unit Production Variability:", q),
-      subtitle = paste("Within-", q, " production for each management unit across years (2017-2021)", sep = ""),
+      subtitle = paste("Within-", q, " production for each management unit across years (", year_range, ")", sep = ""),
       x = "Management Unit",
       y = paste(q, "Production (%)"),
       caption = "Boxes show median, quartiles, and whiskers; dots show outliers"
@@ -305,14 +321,63 @@ for (q in c("Q1", "Q2", "Q3", "Q4")) {
 cat("✓ Clean quartile boxplots created and saved\n")
 
 ################################################################################
+#              CREATE COMBINED FACETED BOXPLOT (ALL QUARTILES)                #
+################################################################################
+
+cat("\n--- CREATING COMBINED FACETED BOXPLOT ---\n")
+
+# Create combined faceted plot showing all quartiles
+combined_boxplot <- ggplot(quartile_boxplot_data, aes(x = mgmt_river, y = within_quartile_pct)) +
+  geom_boxplot(
+    fill = "grey90", 
+    alpha = 0.7, 
+    outlier.alpha = 0.8,
+    outlier.size = 2,
+    outlier.shape = 16,
+    linewidth = 0.5
+  ) +
+  facet_wrap(~quartile_clean, scales = "free_y", ncol = 2) +
+  scale_y_continuous(
+    labels = function(x) paste0(round(x, 1), "%"),
+    expand = expansion(mult = c(0.02, 0.05))
+  ) +
+  coord_flip() +
+  labs(
+    title = "Management Unit Production Variability Across All Quartiles",
+    subtitle = paste("Within-quartile production for each management unit (", year_range, ")", sep = ""),
+    x = "Management Unit",
+    y = "Production (%)",
+    caption = "Boxes show median, quartiles, and whiskers; dots show outliers"
+  ) +
+  theme_minimal(base_size = 11) +
+  theme(
+    plot.title = element_text(face = "bold", size = 16, hjust = 0.5, color = "grey30"),
+    plot.subtitle = element_text(size = 12, hjust = 0.5, color = "gray40"),
+    plot.caption = element_text(size = 10, hjust = 0.5, face = "italic", color = "gray50"),
+    panel.grid.minor = element_blank(),
+    panel.grid.major.y = element_blank(),
+    panel.grid.major.x = element_line(color = "gray90", linewidth = 0.3),
+    axis.title = element_text(face = "bold", size = 12),
+    axis.text.y = element_text(size = 9),
+    axis.text.x = element_text(size = 9),
+    strip.text = element_text(face = "bold", size = 12),
+    plot.background = element_rect(fill = "white", color = NA),
+    panel.background = element_rect(fill = "white", color = NA),
+    plot.margin = margin(15, 15, 15, 15)
+  )
+
+ggsave(file.path(OUTPUT_DIR, "management_unit_all_quartiles_boxplot.png"), 
+       combined_boxplot, width = 14, height = 12, dpi = 300, bg = "white")
+
+################################################################################
 #                          SAVE SUMMARY DATA                                  #
 ################################################################################
 
 cat("\n--- SAVING SUMMARY DATA ---\n")
 
-# Save average production data
+# Save average production data with updated filename
 write_csv(avg_production_by_quartile, 
-          file.path(OUTPUT_DIR, "average_production_by_quartile_2017_2021.csv"))
+          file.path(OUTPUT_DIR, paste0("average_production_by_quartile_", year_range, ".csv")))
 
 # Calculate summary statistics for quartiles
 quartile_summary_stats <- quartile_boxplot_data %>%
@@ -332,6 +397,22 @@ quartile_summary_stats <- quartile_boxplot_data %>%
 write_csv(quartile_summary_stats, 
           file.path(OUTPUT_DIR, "management_unit_quartile_summary_statistics.csv"))
 
+# Calculate detailed statistics with proper scaling
+detailed_stats <- quartile_summary_stats %>%
+  rename(
+    mean_pct = mean_quartile_production,
+    median_pct = median_quartile_production,
+    sd_pct = sd_quartile_production,
+    min_pct = min_quartile_production,
+    max_pct = max_quartile_production,
+    cv_pct = cv_quartile_production
+  ) %>%
+  arrange(quartile_clean, desc(mean_pct))
+
+# Save detailed statistics
+write_csv(detailed_stats, 
+          file.path(OUTPUT_DIR, "management_unit_detailed_statistics.csv"))
+
 cat("✓ Summary data saved\n")
 
 ################################################################################
@@ -342,35 +423,31 @@ cat("\n=== ANALYSIS COMPLETE ===\n")
 cat("✓ Created 4 average quartile maps (no bar plots)\n")
 cat("✓ Added stream order-based line widths (DFA style)\n")
 cat("✓ Created 4 individual quartile boxplot figures\n")
+cat("✓ Created 1 combined faceted boxplot\n")
 cat("✓ Generated summary statistics\n")
+cat("✓ Year range:", year_range, "\n")
+cat("✓ Years included:", paste(years_included, collapse = ", "), "\n")
 cat("\nAll outputs saved to:", OUTPUT_DIR, "\n")
 
 cat("\nFiles created:\n")
 files_created <- c(
-  "Average_Q1_Management_2017_2021.png",
-  "Average_Q2_Management_2017_2021.png", 
-  "Average_Q3_Management_2017_2021.png",
-  "Average_Q4_Management_2017_2021.png",
+  paste0("Average_Q1_Management_", year_range, ".png"),
+  paste0("Average_Q2_Management_", year_range, ".png"), 
+  paste0("Average_Q3_Management_", year_range, ".png"),
+  paste0("Average_Q4_Management_", year_range, ".png"),
   "management_unit_Q1_boxplot.png",
   "management_unit_Q2_boxplot.png",
   "management_unit_Q3_boxplot.png", 
   "management_unit_Q4_boxplot.png",
-  "average_production_by_quartile_2017_2021.csv",
-  "management_unit_quartile_summary_statistics.csv"
+  "management_unit_all_quartiles_boxplot.png",
+  paste0("average_production_by_quartile_", year_range, ".csv"),
+  "management_unit_quartile_summary_statistics.csv",
+  "management_unit_detailed_statistics.csv"
 )
 
 for (file in files_created) {
   cat("  -", file, "\n")
 }
-
-cat("\n=== Maps: No bar plots, DFA-style line widths ===\n")
-cat("=== Boxplots: Clean style with outliers only ===\n")
-
-# Save detailed statistics
-write_csv(detailed_stats, 
-          file.path(OUTPUT_DIR, "management_unit_detailed_statistics_clean.csv"))
-
-cat("✓ Detailed summary statistics saved\n")
 
 # Print top units by quartile
 cat("\nTop 3 management units by mean production for each quartile:\n")
@@ -383,31 +460,8 @@ for (q in c("Q1", "Q2", "Q3", "Q4")) {
   print(top_units)
 }
 
-################################################################################
-#                               FINAL SUMMARY                                 #
-################################################################################
-
-cat("\n=== CLEAN BOXPLOT ANALYSIS COMPLETE ===\n")
-cat("✓ Created 4 individual clean quartile boxplots\n")
-cat("✓ Created 1 combined quartile boxplot (faceted)\n")
-cat("✓ Removed jittered points for cleaner visualization\n")
-cat("✓ Enhanced outlier visibility\n")
-cat("✓ Generated detailed summary statistics\n")
-cat("\nAll outputs saved to:", OUTPUT_DIR, "\n")
-
-cat("\nClean boxplot files created:\n")
-files_created <- c(
-  "management_unit_Q1_boxplot_clean.png",
-  "management_unit_Q2_boxplot_clean.png",
-  "management_unit_Q3_boxplot_clean.png", 
-  "management_unit_Q4_boxplot_clean.png",
-  "management_unit_all_quartiles_boxplot_clean.png",
-  "management_unit_detailed_statistics_clean.csv"
-)
-
-for (file in files_created) {
-  cat("  -", file, "\n")
-}
-
-cat("\n=== Clean Boxplots: Just boxes, whiskers, and outliers ===\n")
-cat("=== No jittered points for cleaner, more professional look ===\n")
+cat("\n=== UPDATED ANALYSIS WITH 2022 DATA ===\n")
+cat("✓ Maps: DFA-style line widths, no bar plots\n")
+cat("✓ Boxplots: Clean style with outliers only\n")
+cat("✓ Time period: ", year_range, "\n")
+cat("✓ Total years analyzed: ", length(years_included), "\n")
