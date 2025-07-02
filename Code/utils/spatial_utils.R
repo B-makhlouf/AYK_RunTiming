@@ -2,7 +2,7 @@
 # SPATIAL_UTILS.R - SPATIAL DATA PROCESSING UTILITIES
 ################################################################################
 # PURPOSE: Core functions for loading and processing spatial data
-# KEY CHANGE: HUC maps now show production PROPORTION, not scaled per stream length
+# NOTE: HUC processing removed - focus on management river analysis only
 ################################################################################
 
 library(sf)
@@ -11,73 +11,72 @@ library(here)
 library(tidyr)
 
 ################################################################################
-# HUC DATA PROCESSING - PRODUCTION PROPORTION (NOT PER STREAM LENGTH)
+# WATERSHED ORDERING FUNCTIONS
 ################################################################################
 
-#' Process HUC data showing production proportion within each HUC
-#' KEY: Shows proportion of production, NOT scaled to stream length
-process_huc_data <- function(edges, basin, Huc, basin_assign_rescale, HUC = 8) {
-  huc_col <- paste0("HUC", HUC)
-  name_col <- "Name"
+#' Get standardized watershed ordering for all plots and analyses
+#' 
+#' @return Character vector of management unit names ordered from upstream to downstream
+get_watershed_order <- function() {
+  # Exact order from your document - upstream to downstream
+  watershed_order <- c(
+    "N. Fork Kusko",
+    "E. Fork Kuskokwim River", 
+    "S. Fork Kusko",
+    "Upper Kusko Main",
+    "Big River",
+    "Takotna and Nixon Fork",
+    "Tatlawiksuk",
+    "Swift",
+    "Stony", 
+    "Holitna",
+    "Hoholitna",
+    "Middle Kusko Main",
+    "George",
+    "Oskakawlik", 
+    "Holokuk",
+    "Aniak",
+    "Tuluksak",
+    "Kisaralik",
+    "Kwethluk",
+    "Johnson",
+    "Lower Kusko"
+  )
   
-  # Remove existing HUC column from edges if present
-  if (huc_col %in% colnames(edges)) {
-    edges <- edges %>% select(-all_of(huc_col))
+  return(watershed_order)
+}
+
+#' Apply watershed ordering to a data frame
+#' 
+#' @param data Data frame containing management unit column
+#' @param mgmt_col Name of the management unit column (default: "mgmt_river")
+#' @param reverse_for_plots Logical, whether to reverse order for coord_flip() plots (default: FALSE)
+#' @return Data frame with management unit column converted to ordered factor
+apply_watershed_order <- function(data, mgmt_col = "mgmt_river", reverse_for_plots = FALSE) {
+  
+  # Get the standard ordering
+  standard_order <- get_watershed_order()
+  
+  # Reverse if needed for coord_flip plots (so upstream appears at top)
+  if (reverse_for_plots) {
+    standard_order <- rev(standard_order)
   }
   
-  # Transform to consistent CRS and add assignment values
-  edges <- st_transform(edges, st_crs(Huc))
-  edges$basin_assign_rescale <- basin_assign_rescale
-  basin <- st_transform(basin, st_crs(Huc))
+  # Filter to only units present in the data
+  units_in_data <- unique(data[[mgmt_col]])
+  final_order <- standard_order[standard_order %in% units_in_data]
   
-  # Identify HUCs that intersect with basin
-  basin_buffer <- st_buffer(basin, dist = 0)
-  hucs_in_basin <- Huc[st_intersects(Huc, basin_buffer, sparse = FALSE)[,1], ]
+  # Add any units from data that aren't in our standard list (shouldn't happen but safety check)
+  missing_units <- setdiff(units_in_data, standard_order)
+  if (length(missing_units) > 0) {
+    warning("Found management units not in standard order: ", paste(missing_units, collapse = ", "))
+    final_order <- c(final_order, missing_units)
+  }
   
-  # Calculate intersection areas for filtering
-  intersection_areas <- st_intersection(hucs_in_basin, basin_buffer) %>%
-    mutate(area = st_area(.)) %>%
-    st_drop_geometry() %>%
-    group_by(!!sym(huc_col)) %>%
-    summarize(int_area = sum(area))
+  # Apply factor ordering
+  data[[mgmt_col]] <- factor(data[[mgmt_col]], levels = final_order)
   
-  # Get original HUC areas
-  hucs_areas <- hucs_in_basin %>%
-    mutate(total_area = st_area(.)) %>%
-    st_drop_geometry() %>%
-    select(!!sym(huc_col), total_area)
-  
-  # Calculate overlap percentage and filter
-  overlap_percentage <- intersection_areas %>%
-    left_join(hucs_areas, by = huc_col) %>%
-    mutate(pct_overlap = as.numeric(int_area / total_area))
-  
-  significant_hucs <- overlap_percentage %>%
-    filter(pct_overlap > 0.1) %>%
-    pull(!!sym(huc_col))
-  
-  # Spatial join between edges and HUCs
-  Combined_edges_HUC <- st_join(edges, Huc, join = st_intersects)
-  
-  # CORE CALCULATION: Summarize production by HUC polygon (PROPORTION ONLY)
-  summary_huc <- Combined_edges_HUC %>%
-    group_by(!!sym(huc_col)) %>%
-    summarise(
-      total_production = sum(basin_assign_rescale, na.rm = TRUE),
-      .groups = "drop"
-    ) %>%
-    mutate(production_proportion = total_production / sum(total_production, na.rm = TRUE))
-  
-  # Merge with HUC polygons
-  final_result <- Huc %>%
-    filter(!!sym(huc_col) %in% significant_hucs) %>%
-    left_join(st_drop_geometry(summary_huc), by = huc_col)
-  
-  # Replace NA values with 0
-  final_result$total_production[is.na(final_result$total_production)] <- 0
-  final_result$production_proportion[is.na(final_result$production_proportion)] <- 0
-  
-  return(final_result)
+  return(data)
 }
 
 ################################################################################
@@ -117,6 +116,9 @@ process_mgmt_river_data <- function(edges, basin_assign_rescale) {
       .groups = "drop"
     ) %>%
     mutate(production_proportion = total_production / sum(total_production, na.rm = TRUE))
+  
+  # Apply watershed ordering for consistency
+  summary_mgmt <- apply_watershed_order(summary_mgmt, "mgmt_river", reverse_for_plots = FALSE)
   
   return(summary_mgmt)
 }
@@ -166,6 +168,9 @@ process_management_data <- function(edges, basin_assign_rescale, grand_total_pro
       grand_total_production = grand_total_production
     )
   
+  # Apply watershed ordering for consistency
+  summary_mgmt <- apply_watershed_order(summary_mgmt, "mgmt_river", reverse_for_plots = FALSE)
+  
   return(summary_mgmt)
 }
 
@@ -189,10 +194,9 @@ load_spatial_data <- function(watershed, HUC = 8, min_stream_order = 3) {
   edges <- st_transform(edges, st_crs(basin))
   edges <- edges[edges$Str_Order >= min_stream_order,]
   
-  Huc <- st_read(paste0("/Users/benjaminmakhlouf/Spatial Data/HUC", HUC, "_Trimmed.shp"), quiet = TRUE)
-  Huc <- st_transform(Huc, st_crs(basin))
-  
-  return(list(edges = edges, basin = basin, Huc = Huc))
+  # Note: HUC loading removed since we're not using HUC maps anymore
+  # Return without HUC data
+  return(list(edges = edges, basin = basin))
 }
 
 #' Load natal origins data for specific year and watershed

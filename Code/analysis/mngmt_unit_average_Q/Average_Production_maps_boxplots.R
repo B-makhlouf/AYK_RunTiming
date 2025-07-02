@@ -1,13 +1,8 @@
 ################################################################################
 #                    AVERAGE MANAGEMENT UNIT PRODUCTION MAPS                  #
 ################################################################################
-# PURPOSE: Create maps that look EXACTLY like the existing DOY_Quartile/Management
-#          maps, but showing average production across all years (2017-2022)
-#
-# OUTPUTS: 
-#   - 4 maps (Q1-Q4) with identical styling to existing management maps
-#   - 1 boxplot showing production variability across years
-#   - Summary statistics CSV
+# PURPOSE: Create maps and boxplots with standardized watershed ordering
+# NOTE: Now uses watershed ordering (upstream to downstream) for all plots
 ################################################################################
 
 ################################################################################
@@ -27,17 +22,20 @@ suppressPackageStartupMessages({
   library(png)
 })
 
+# Source spatial utils for watershed ordering functions
+source("/Users/benjaminmakhlouf/Research_repos/AYK_RunTiming/code/utils/spatial_utils.R")
+
 # Set file paths
 DATA_PATH <- "/Users/benjaminmakhlouf/Research_repos/AYK_RunTiming/Analysis_Results/Management_River_Analysis/management_river_analysis_tidy.csv"
 SPATIAL_PATH <- "/Users/benjaminmakhlouf/Spatial Data/KuskoUSGS_HUC_joined.shp"
 BASIN_PATH <- "/Users/benjaminmakhlouf/Desktop/Research/isoscapes_new/Kusko/Kusko_basin.shp"
-OUTPUT_DIR <- "/Users/benjaminmakhlouf/Research_repos/AYK_RunTiming/Figures/Average_Management_Production_2017_2022"
+OUTPUT_DIR <- "/Users/benjaminmakhlouf/Research_repos/AYK_RunTiming/Figures/Average_Management_Production_2017_2022_WATERSHED_ORDERED"
 
 # Create output directory
 dir.create(OUTPUT_DIR, recursive = TRUE, showWarnings = FALSE)
 
-cat("=== AVERAGE MANAGEMENT UNIT PRODUCTION ANALYSIS (2017-2022) ===\n")
-cat("Creating maps identical to DOY_Quartile/Management style\n")
+cat("=== AVERAGE MANAGEMENT UNIT PRODUCTION ANALYSIS (WATERSHED ORDERED) ===\n")
+cat("Creating maps and boxplots with standardized watershed ordering\n")
 cat("Output directory:", OUTPUT_DIR, "\n")
 
 ################################################################################
@@ -74,8 +72,8 @@ if (2022 %in% available_years) {
   years_included <- available_years
 }
 
-cat("Loaded data for", length(years_included), "years and", 
-    length(unique(mgmt_data$mgmt_river)), "management units\n")
+cat("Loaded data for", length(unique(mgmt_data$mgmt_river)), "management units and", 
+    length(years_included), "years\n")
 
 # Load spatial data
 edges <- st_read(SPATIAL_PATH, quiet = TRUE)
@@ -100,13 +98,16 @@ avg_production_by_quartile <- mgmt_data %>%
   # Convert to the same scale as original maps (0-1 proportion)
   mutate(production_proportion = avg_within_quartile_prop)
 
+# Apply watershed ordering
+avg_production_by_quartile <- apply_watershed_order(avg_production_by_quartile, "mgmt_river", reverse_for_plots = FALSE)
+
 cat("Calculated averages for", nrow(avg_production_by_quartile), "mgmt_unit × quartile combinations\n")
 
 ################################################################################
 #              CREATE MAPS IDENTICAL TO EXISTING MANAGEMENT MAPS              #
 ################################################################################
 
-cat("\n--- CREATING QUARTILE MAPS WITH ORIGINAL STYLING ---\n")
+cat("\n--- CREATING QUARTILE MAPS WITH WATERSHED ORDERING ---\n")
 
 #' Create management map identical to original DOY_Quartile/Management style
 create_average_mgmt_map <- function(quartile_data, quartile_label, output_filepath, year_range) {
@@ -191,19 +192,19 @@ for (q in c("Q1", "Q2", "Q3", "Q4")) {
     filter(!is.na(production_proportion))
   
   # Create map with exact original styling
-  map_filename <- paste0("Average_", q, "_Management_", year_range, ".png")
+  map_filename <- paste0("Average_", q, "_Management_", year_range, "_WATERSHED_ORDERED.png")
   map_filepath <- file.path(OUTPUT_DIR, map_filename)
   
   create_average_mgmt_map(quartile_data, q, map_filepath, year_range)
 }
 
-cat("✓ All average quartile maps created with original styling\n")
+cat("✓ All average quartile maps created with watershed ordering\n")
 
 ################################################################################
 #                       CREATE CLEAN QUARTILE BOXPLOTS                        #
 ################################################################################
 
-cat("\n--- CREATING CLEAN QUARTILE BOXPLOTS ---\n")
+cat("\n--- CREATING CLEAN QUARTILE BOXPLOTS WITH WATERSHED ORDERING ---\n")
 
 # Prepare data for boxplots - show variability in EACH QUARTILE across years
 quartile_boxplot_data <- mgmt_data %>%
@@ -211,55 +212,13 @@ quartile_boxplot_data <- mgmt_data %>%
   # Convert to percentage for easier interpretation
   mutate(within_quartile_pct = within_quartile_prop * 100)
 
-# First, let's see what management units we actually have in the data
-cat("Management units found in data:\n")
-unique_mgmt_units <- sort(unique(quartile_boxplot_data$mgmt_river))
-for (i in seq_along(unique_mgmt_units)) {
-  cat(paste(i, ".", unique_mgmt_units[i], "\n"))
-}
+# Apply watershed ordering (reverse for coord_flip so upstream appears at top)
+quartile_boxplot_data <- apply_watershed_order(quartile_boxplot_data, "mgmt_river", reverse_for_plots = TRUE)
 
-# Define the EXACT order from your image (REVERSED for coord_flip to show N. Fork Kusko at top)
-desired_order <- c(
-  "N. Fork Kusko",
-  "E. Fork Kuskokwim", 
-  "S. Fork Kusko", 
-  "Takotna and Nixon Fork",
-  "Big River",
-  "Upper Kusko Main",
-  "Tatlawiksuk",
-  "Kwethluk",
-  "Stony",
-  "Swift",
-  "Holitna and Hoholitna", 
-  "George",
-  "Oskakawlik",
-  "Middle Kusko Main",
-  "Holokuk",
-  "Aniak",
-  "Tuluksak",
-  "Kisaralik",
-  "Hoholitna",
-  "Johnson",
-  "Lower Kusko"  # Changed from "Lower Kusko Main"
-)
-
-# Reverse the order for coord_flip
-mgmt_order <- rev(desired_order)
-
-# Only include units that actually exist in the data, in the specified order
-existing_units <- intersect(mgmt_order, unique_mgmt_units)
-
-# Add any units from data that weren't in our specified list
-additional_units <- setdiff(unique_mgmt_units, desired_order)
-final_order <- c(existing_units, additional_units)
-
-quartile_boxplot_data <- quartile_boxplot_data %>%
-  mutate(mgmt_river = factor(mgmt_river, levels = final_order))
-
-cat("\nFinal ordering will be (top to bottom after coord_flip):\n")
+cat("\nWatershed ordering applied (top to bottom in plots):\n")
 final_levels <- levels(quartile_boxplot_data$mgmt_river)
-for (i in length(final_levels):1) {  # Print in reverse to show actual display order
-  cat(paste(length(final_levels) - i + 1, ".", final_levels[i], "\n"))
+for (i in 1:length(final_levels)) {
+  cat(paste(i, ".", final_levels[i], "\n"))
 }
 
 # Create individual CLEAN boxplot for each quartile
@@ -291,10 +250,10 @@ for (q in c("Q1", "Q2", "Q3", "Q4")) {
     # Labels and theme - UPDATE THE SUBTITLE TO INCLUDE ACTUAL YEARS
     labs(
       title = paste("Management Unit Production Variability:", q),
-      subtitle = paste("Within-", q, " production for each management unit across years (", year_range, ")", sep = ""),
-      x = "Management Unit",
+      subtitle = paste("Within-", q, " production for each management unit across years (", year_range, ") | Watershed order: upstream → downstream", sep = ""),
+      x = "Management Unit (Watershed Position)",
       y = paste(q, "Production (%)"),
-      caption = "Boxes show median, quartiles, and whiskers; dots show outliers"
+      caption = "Boxes show median, quartiles, and whiskers; dots show outliers | Ordered by watershed position (upstream at top)"
     ) +
     theme_minimal(base_size = 12) +
     theme(
@@ -314,17 +273,17 @@ for (q in c("Q1", "Q2", "Q3", "Q4")) {
     )
   
   # Save individual quartile boxplot
-  ggsave(file.path(OUTPUT_DIR, paste0("management_unit_", q, "_boxplot.png")), 
+  ggsave(file.path(OUTPUT_DIR, paste0("management_unit_", q, "_boxplot_WATERSHED_ORDERED.png")), 
          q_boxplot, width = 12, height = 10, dpi = 300, bg = "white")
 }
 
-cat("✓ Clean quartile boxplots created and saved\n")
+cat("✓ Clean quartile boxplots created with watershed ordering\n")
 
 ################################################################################
 #              CREATE COMBINED FACETED BOXPLOT (ALL QUARTILES)                #
 ################################################################################
 
-cat("\n--- CREATING COMBINED FACETED BOXPLOT ---\n")
+cat("\n--- CREATING COMBINED FACETED BOXPLOT WITH WATERSHED ORDERING ---\n")
 
 # Create combined faceted plot showing all quartiles
 combined_boxplot <- ggplot(quartile_boxplot_data, aes(x = mgmt_river, y = within_quartile_pct)) +
@@ -344,10 +303,10 @@ combined_boxplot <- ggplot(quartile_boxplot_data, aes(x = mgmt_river, y = within
   coord_flip() +
   labs(
     title = "Management Unit Production Variability Across All Quartiles",
-    subtitle = paste("Within-quartile production for each management unit (", year_range, ")", sep = ""),
-    x = "Management Unit",
+    subtitle = paste("Within-quartile production for each management unit (", year_range, ") | Watershed order: upstream → downstream", sep = ""),
+    x = "Management Unit (Watershed Position)",
     y = "Production (%)",
-    caption = "Boxes show median, quartiles, and whiskers; dots show outliers"
+    caption = "Boxes show median, quartiles, and whiskers; dots show outliers | Ordered by watershed position (upstream at top)"
   ) +
   theme_minimal(base_size = 11) +
   theme(
@@ -366,20 +325,20 @@ combined_boxplot <- ggplot(quartile_boxplot_data, aes(x = mgmt_river, y = within
     plot.margin = margin(15, 15, 15, 15)
   )
 
-ggsave(file.path(OUTPUT_DIR, "management_unit_all_quartiles_boxplot.png"), 
+ggsave(file.path(OUTPUT_DIR, "management_unit_all_quartiles_boxplot_WATERSHED_ORDERED.png"), 
        combined_boxplot, width = 14, height = 12, dpi = 300, bg = "white")
 
 ################################################################################
 #                          SAVE SUMMARY DATA                                  #
 ################################################################################
 
-cat("\n--- SAVING SUMMARY DATA ---\n")
+cat("\n--- SAVING SUMMARY DATA WITH WATERSHED ORDERING ---\n")
 
 # Save average production data with updated filename
 write_csv(avg_production_by_quartile, 
-          file.path(OUTPUT_DIR, paste0("average_production_by_quartile_", year_range, ".csv")))
+          file.path(OUTPUT_DIR, paste0("average_production_by_quartile_", year_range, "_WATERSHED_ORDERED.csv")))
 
-# Calculate summary statistics for quartiles
+# Calculate summary statistics for quartiles with watershed ordering
 quartile_summary_stats <- quartile_boxplot_data %>%
   group_by(mgmt_river, quartile_clean) %>%
   summarise(
@@ -392,12 +351,12 @@ quartile_summary_stats <- quartile_boxplot_data %>%
     n_years = n(),
     .groups = "drop"
   ) %>%
-  arrange(mgmt_river, quartile_clean)
+  arrange(mgmt_river, quartile_clean)  # This maintains watershed ordering
 
 write_csv(quartile_summary_stats, 
-          file.path(OUTPUT_DIR, "management_unit_quartile_summary_statistics.csv"))
+          file.path(OUTPUT_DIR, "management_unit_quartile_summary_statistics_WATERSHED_ORDERED.csv"))
 
-# Calculate detailed statistics with proper scaling
+# Calculate detailed statistics with proper scaling and watershed ordering
 detailed_stats <- quartile_summary_stats %>%
   rename(
     mean_pct = mean_quartile_production,
@@ -407,61 +366,52 @@ detailed_stats <- quartile_summary_stats %>%
     max_pct = max_quartile_production,
     cv_pct = cv_quartile_production
   ) %>%
-  arrange(quartile_clean, desc(mean_pct))
+  arrange(quartile_clean, mgmt_river)  # Maintains watershed ordering within quartiles
 
 # Save detailed statistics
 write_csv(detailed_stats, 
-          file.path(OUTPUT_DIR, "management_unit_detailed_statistics.csv"))
+          file.path(OUTPUT_DIR, "management_unit_detailed_statistics_WATERSHED_ORDERED.csv"))
 
-cat("✓ Summary data saved\n")
+cat("✓ Summary data saved with watershed ordering maintained\n")
 
 ################################################################################
 #                               FINAL SUMMARY                                 #
 ################################################################################
 
 cat("\n=== ANALYSIS COMPLETE ===\n")
-cat("✓ Created 4 average quartile maps (no bar plots)\n")
+cat("✓ Created 4 average quartile maps with watershed ordering\n")
 cat("✓ Added stream order-based line widths (DFA style)\n")
-cat("✓ Created 4 individual quartile boxplot figures\n")
-cat("✓ Created 1 combined faceted boxplot\n")
-cat("✓ Generated summary statistics\n")
+cat("✓ Created 4 individual quartile boxplot figures with watershed ordering\n")
+cat("✓ Created 1 combined faceted boxplot with watershed ordering\n")
+cat("✓ Generated summary statistics maintaining watershed order\n")
 cat("✓ Year range:", year_range, "\n")
 cat("✓ Years included:", paste(years_included, collapse = ", "), "\n")
+cat("✓ WATERSHED ORDERING: Upstream (top/left) → Downstream (bottom/right)\n")
 cat("\nAll outputs saved to:", OUTPUT_DIR, "\n")
 
 cat("\nFiles created:\n")
 files_created <- c(
-  paste0("Average_Q1_Management_", year_range, ".png"),
-  paste0("Average_Q2_Management_", year_range, ".png"), 
-  paste0("Average_Q3_Management_", year_range, ".png"),
-  paste0("Average_Q4_Management_", year_range, ".png"),
-  "management_unit_Q1_boxplot.png",
-  "management_unit_Q2_boxplot.png",
-  "management_unit_Q3_boxplot.png", 
-  "management_unit_Q4_boxplot.png",
-  "management_unit_all_quartiles_boxplot.png",
-  paste0("average_production_by_quartile_", year_range, ".csv"),
-  "management_unit_quartile_summary_statistics.csv",
-  "management_unit_detailed_statistics.csv"
+  paste0("Average_Q1_Management_", year_range, "_WATERSHED_ORDERED.png"),
+  paste0("Average_Q2_Management_", year_range, "_WATERSHED_ORDERED.png"), 
+  paste0("Average_Q3_Management_", year_range, "_WATERSHED_ORDERED.png"),
+  paste0("Average_Q4_Management_", year_range, "_WATERSHED_ORDERED.png"),
+  "management_unit_Q1_boxplot_WATERSHED_ORDERED.png",
+  "management_unit_Q2_boxplot_WATERSHED_ORDERED.png",
+  "management_unit_Q3_boxplot_WATERSHED_ORDERED.png", 
+  "management_unit_Q4_boxplot_WATERSHED_ORDERED.png",
+  "management_unit_all_quartiles_boxplot_WATERSHED_ORDERED.png",
+  paste0("average_production_by_quartile_", year_range, "_WATERSHED_ORDERED.csv"),
+  "management_unit_quartile_summary_statistics_WATERSHED_ORDERED.csv",
+  "management_unit_detailed_statistics_WATERSHED_ORDERED.csv"
 )
 
 for (file in files_created) {
   cat("  -", file, "\n")
 }
 
-# Print top units by quartile
-cat("\nTop 3 management units by mean production for each quartile:\n")
-for (q in c("Q1", "Q2", "Q3", "Q4")) {
-  cat(paste("\n", q, ":\n"))
-  top_units <- detailed_stats %>%
-    filter(quartile_clean == q) %>%
-    slice_head(n = 3) %>%
-    select(mgmt_river, mean_pct, median_pct, cv_pct)
-  print(top_units)
-}
-
-cat("\n=== UPDATED ANALYSIS WITH 2022 DATA ===\n")
-cat("✓ Maps: DFA-style line widths, no bar plots\n")
-cat("✓ Boxplots: Clean style with outliers only\n")
-cat("✓ Time period: ", year_range, "\n")
-cat("✓ Total years analyzed: ", length(years_included), "\n")
+cat("\n=== WATERSHED ORDERING APPLIED TO ALL VISUALIZATIONS ===\n")
+cat("✓ Maps: Spatial representation (not affected by ordering)\n")
+cat("✓ Boxplots: Upstream management units at TOP, downstream at BOTTOM\n")
+cat("✓ Bar plots: Would follow same upstream → downstream pattern\n")
+cat("✓ CSV files: Maintain watershed ordering for consistency\n")
+cat("✓ All analysis maintains biological/spatial relevance\n")

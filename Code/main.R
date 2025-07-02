@@ -21,7 +21,7 @@ library(gridExtra)
 library(tidyr)
 
 # Source required files (keeping existing structure)
-source(here("code/utils/spatial_utils.R"))
+source(here("code/utils/spatial_utils.R"))  # This now includes watershed ordering functions
 source(here("code/utils/visualization.R"))
 source(here("code/assignment.R"))
 source(here("code/doy_analysis.R"))
@@ -83,7 +83,6 @@ run_doy_analysis <- function(years, watersheds, export_csv = TRUE) {
         sensitivity_threshold = params$sensitivity_threshold,
         min_error = params$min_error,
         min_stream_order = params$min_stream_order,
-        HUC = 8,
         return_values = export_csv  # Only get return values if we're exporting
       )
       
@@ -133,7 +132,6 @@ run_doy_total_analysis <- function(years, watersheds, export_csv = TRUE) {
         sensitivity_threshold = params$sensitivity_threshold,
         min_error = params$min_error,
         min_stream_order = params$min_stream_order,
-        HUC = 8,
         return_values = FALSE  # We don't need return values for this
       )
     }
@@ -465,8 +463,6 @@ export_closure_analysis_csv <- function(closure_results, closure_start, closure_
 ################################################################################
 
 # Set analysis parameters
-
-
 years <- c("2017","2018","2019","2020","2022")
 watersheds <- c("Kusko")
 
@@ -476,13 +472,12 @@ message("=== Running Analysis Suite (Management Rivers Only) ===")
 message("Starting DOY Quartile Analysis (Management Rivers only) with CSV export...")
 run_doy_analysis(years, watersheds, export_csv = TRUE)
 
-# 2. DOY Total (tributary maps only - no HUC maps)
-message("Starting DOY Total Analysis (Tributary maps only)...")
-run_doy_total_analysis(years, watersheds, export_csv = FALSE)
+# # 2. DOY Total (tributary maps only - no HUC maps)
+# message("Starting DOY Total Analysis (Tributary maps only)...")
+# run_doy_total_analysis(years, watersheds, export_csv = FALSE)
 
 # 3. Front-end Closure + CSV export
 message("Starting Front-end Closure Analysis with CSV export...")
 run_closure_analysis(years, "Kusko", export_csv = TRUE)
 
 message("=== Analysis Complete ===")
-

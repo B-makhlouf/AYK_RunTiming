@@ -1,23 +1,43 @@
 ################################################################################
-# FRONT-END CLOSURE BOXPLOT - CORRECT CALCULATION
+# FRONT-END CLOSURE BOXPLOT - CORRECT CALCULATION WITH WATERSHED ORDERING
 ################################################################################
 # PURPOSE: Shows what % of EACH management unit's total annual production 
 #          falls within the Q1 closure window (start through June 11)
-#
-# CORRECT CALCULATION:
-# For each management unit in each year:
-# 1. Get Q1 production value (total_run_prop for Q1)
-# 2. Get total annual production (sum of Q1+Q2+Q3+Q4 total_run_prop)
-# 3. closure_percentage = (Q1 production / Total annual production) × 100
-#
-# INTERPRETATION:
-# - High % = Most of that unit's fish arrive during Q1 closure (early timing)
-# - Low % = Most of that unit's fish arrive after Q1 closure (late timing)
+# NOTE: Now uses standardized watershed ordering (upstream to downstream)
 ################################################################################
 
 # Load libraries
 library(dplyr)
 library(ggplot2)
+
+# Load required functions - use relative path or check if functions exist
+if(!exists("get_watershed_order")) {
+  # Define watershed ordering functions directly in this script
+  get_watershed_order <- function() {
+    c("N. Fork Kusko", "E. Fork Kuskokwim River", "S. Fork Kusko",
+      "Upper Kusko Main", "Big River", "Takotna and Nixon Fork",
+      "Tatlawiksuk", "Swift", "Stony", "Holitna and Hoholitna",
+      "Middle Kusko Main", "George", "Oskakawlik", "Holokuk",
+      "Aniak", "Tuluksak", "Kisaralik", "Kwethluk", "Johnson", "Lower Kusko")
+  }
+  
+  apply_watershed_order <- function(data, mgmt_col = "mgmt_river", reverse_for_plots = FALSE) {
+    standard_order <- get_watershed_order()
+    if (reverse_for_plots) standard_order <- rev(standard_order)
+    
+    units_in_data <- unique(data[[mgmt_col]])
+    final_order <- standard_order[standard_order %in% units_in_data]
+    
+    missing_units <- setdiff(units_in_data, standard_order)
+    if (length(missing_units) > 0) {
+      warning("Found management units not in standard order: ", paste(missing_units, collapse = ", "))
+      final_order <- c(final_order, missing_units)
+    }
+    
+    data[[mgmt_col]] <- factor(data[[mgmt_col]], levels = final_order)
+    return(data)
+  }
+}
 
 # Output directory
 OUTPUT_DIR <- "/Users/benjaminmakhlouf/Research_repos/AYK_RunTiming/Figures/Front_End_Closure_Boxplots"
@@ -96,27 +116,18 @@ if(nrow(missing_data) > 0) {
 }
 
 ################################################################################
-# STEP 4: SET WATERSHED ORDER (UPSTREAM TO DOWNSTREAM)
+# STEP 4: APPLY WATERSHED ORDERING
 ################################################################################
 
-# Define watershed position order (same as average production analysis)
-watershed_order <- c(
-  "N. Fork Kusko", "E. Fork Kuskokwim", "S. Fork Kusko", 
-  "Takotna and Nixon Fork", "Big River", "Upper Kusko Main",
-  "Tatlawiksuk", "Kwethluk", "Stony", "Swift",
-  "Holitna and Hoholitna", "George", "Oskakawlik", 
-  "Middle Kusko Main", "Holokuk", "Aniak", "Tuluksak",
-  "Kisaralik", "Hoholitna", "Johnson", "Lower Kusko"
-)
+# Apply watershed ordering (reverse for coord_flip so upstream appears at top)
+boxplot_data <- apply_watershed_order(boxplot_data, "mgmt_river", reverse_for_plots = TRUE)
 
-# Filter to units present in data, maintain watershed order
-units_in_data <- unique(boxplot_data$mgmt_river)
-final_order <- watershed_order[watershed_order %in% units_in_data]
-
-# Apply ordering (reverse for coord_flip so upstream appears at top)
-boxplot_data$mgmt_river <- factor(boxplot_data$mgmt_river, levels = rev(final_order))
-
-print(paste("\nWatershed order (upstream to downstream):", paste(final_order, collapse = " → ")))
+# Print the final ordering
+print("\nWatershed order applied (will appear top to bottom in plot):")
+final_levels <- levels(boxplot_data$mgmt_river)
+for (i in 1:length(final_levels)) {
+  cat(paste(i, ".", final_levels[i], "\n"))
+}
 
 ################################################################################
 # STEP 5: CREATE BOXPLOT
@@ -142,9 +153,9 @@ boxplot <- ggplot(boxplot_data, aes(x = mgmt_river, y = closure_percentage)) +
   labs(
     title = "Front-End Closure Protection by Management Unit",
     subtitle = paste("% of EACH UNIT'S total annual production within Q1 closure window | Watershed order: upstream → downstream | Years:", year_range),
-    x = "Management Unit (Watershed Position)",
+    x = "Management Unit (Watershed Position: Upstream → Downstream)",
     y = "% of Unit's Total Annual Production in Q1 Closure Window",
-    caption = "Shows what % of each unit's total annual production (Q1+Q2+Q3+Q4) occurs within Q1 closure period"
+    caption = "Shows what % of each unit's total annual production (Q1+Q2+Q3+Q4) occurs within Q1 closure period\nOrdered by position in watershed from headwaters (top) to mouth (bottom)"
   ) +
   theme_minimal(base_size = 12) +
   theme(
@@ -167,12 +178,12 @@ boxplot <- ggplot(boxplot_data, aes(x = mgmt_river, y = closure_percentage)) +
 # STEP 6: SAVE PLOT AND SUMMARY
 ################################################################################
 
-ggsave(file.path(OUTPUT_DIR, "front_end_closure_protection_boxplot_CORRECTED.png"), 
+ggsave(file.path(OUTPUT_DIR, "front_end_closure_protection_boxplot_WATERSHED_ORDERED.png"), 
        boxplot, width = 12, height = 10, dpi = 300, bg = "white")
 
 print(boxplot)
 
-# Summary statistics
+# Summary statistics with watershed ordering maintained
 summary_stats <- boxplot_data %>%
   group_by(mgmt_river) %>%
   summarise(
@@ -183,9 +194,17 @@ summary_stats <- boxplot_data %>%
     n_years = n(),
     .groups = "drop"
   ) %>%
-  mutate(mgmt_river = factor(mgmt_river, levels = final_order)) %>%
+  # Maintain the watershed ordering in the summary
   arrange(mgmt_river)
 
-write.csv(summary_stats, file.path(OUTPUT_DIR, "closure_protection_summary_CORRECTED.csv"), row.names = FALSE)
+write.csv(summary_stats, file.path(OUTPUT_DIR, "closure_protection_summary_WATERSHED_ORDERED.csv"), row.names = FALSE)
 
+print("\n=== SUMMARY STATISTICS (WATERSHED ORDERED) ===")
+print("Top 5 management units (upstream first):")
+print(head(summary_stats))
 
+print("\n=== ANALYSIS COMPLETE ===")
+print("✓ Applied standardized watershed ordering (upstream → downstream)")
+print("✓ Upstream management units appear at TOP of plot")
+print("✓ Downstream management units appear at BOTTOM of plot")
+print(paste("✓ Plot saved to:", file.path(OUTPUT_DIR, "front_end_closure_protection_boxplot_WATERSHED_ORDERED.png")))

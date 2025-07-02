@@ -2,7 +2,7 @@
 # DOY_TOTAL_ANALYSIS.R - DOY ANALYSIS WITH TOTAL RUN NORMALIZATION
 ################################################################################
 # PURPOSE: Analyzes salmon run timing quartiles as proportion of TOTAL ANNUAL RUN
-# OUTPUT: Shows what % of the ENTIRE year's run each quartile represents in each HUC
+# OUTPUT: Shows what % of the ENTIRE year's run each quartile represents
 # KEY DIFFERENCE: Normalizes to total run, not within quartile
 ################################################################################
 
@@ -25,7 +25,7 @@ source(here("code/assignment.R"))
 
 #' Perform DOY Total Analysis - normalized to entire annual run
 DOY_Total_Analysis <- function(year, watershed, sensitivity_threshold, min_error, 
-                               min_stream_order = 3, HUC = 8, 
+                               min_stream_order = 3, 
                                return_values = FALSE) {
   
   message(paste("=== Starting DOY Total Analysis for", year, watershed, "==="))
@@ -35,10 +35,9 @@ DOY_Total_Analysis <- function(year, watershed, sensitivity_threshold, min_error
   ################################################################################
   
   # Load spatial and natal data
-  spatial_data <- load_spatial_data(watershed, HUC, min_stream_order)
+  spatial_data <- load_spatial_data(watershed, 8, min_stream_order)
   edges <- spatial_data$edges
   basin <- spatial_data$basin
-  Huc <- spatial_data$Huc
   
   natal_data <- load_natal_data(year, watershed)
   
@@ -74,17 +73,9 @@ DOY_Total_Analysis <- function(year, watershed, sensitivity_threshold, min_error
   message(paste("Grand total production:", round(grand_total_production, 6)))
   
   ################################################################################
-  # CALCULATE TOTAL HUC PRODUCTION FOR COMPARISON
-  ################################################################################
-  
-  all_hucs_result <- process_huc_data(edges, basin, Huc, total_basin_assign_sum, HUC)
-  all_hucs_result$percent_of_total_run <- (all_hucs_result$total_production / grand_total_production) * 100
-  
-  ################################################################################
   # CREATE OUTPUT DIRECTORIES
   ################################################################################
   
-  dir.create(here("Basin Maps/DOY_Total/HUC"), showWarnings = FALSE, recursive = TRUE)
   dir.create(here("Basin Maps/DOY_Total/Tribs"), showWarnings = FALSE, recursive = TRUE)
   
   # Storage for return values
@@ -129,33 +120,11 @@ DOY_Total_Analysis <- function(year, watershed, sensitivity_threshold, min_error
     quartile_pct_of_total <- quartile_basin_assign_sum / grand_total_production * 100
     
     ################################################################################
-    # PROCESS HUC DATA WITH TOTAL RUN PERCENTAGES
-    ################################################################################
-    
-    final_result <- process_huc_data(edges, basin, Huc, quartile_basin_assign_sum, HUC)
-    
-    # Add total run context
-    final_result$total_production_all_quartiles <- grand_total_production
-    final_result$percent_of_total_run <- (final_result$total_production / grand_total_production) * 100
-    
-    ################################################################################
     # CREATE VISUALIZATION PLOTS
     ################################################################################
     
     # Create DOY histogram
     gg_hist <- create_doy_histogram(natal_data, current_subset, subset_labels[q])
-    
-    ################################################################################
-    # CREATE HUC MAP WITH TOTAL RUN PERCENTAGES
-    ################################################################################
-    
-    huc_filepath <- file.path(here("Basin Maps/DOY_Total/HUC"), 
-                              paste0(subset_id, "_HUC", HUC, ".png"))
-    
-    # Create map showing percent of total run
-    create_total_huc_map(final_result, all_hucs_result, gg_hist, year, watershed, 
-                         sensitivity_threshold, min_stream_order, HUC, 
-                         subset_labels[q], huc_filepath)
     
     ################################################################################
     # CREATE TRIBUTARY MAP WITH TOTAL RUN PERCENTAGES  
@@ -179,9 +148,7 @@ DOY_Total_Analysis <- function(year, watershed, sensitivity_threshold, min_error
         label = subset_labels[q],
         percent_of_total_run = quartile_pct_of_total,
         total_basin_assign_sum = total_basin_assign_sum,
-        grand_total_production = grand_total_production,
-        huc_result = final_result,
-        all_hucs_result = all_hucs_result
+        grand_total_production = grand_total_production
       )
     }
   }
@@ -202,61 +169,6 @@ DOY_Total_Analysis <- function(year, watershed, sensitivity_threshold, min_error
 ################################################################################
 # HELPER FUNCTIONS FOR TOTAL RUN MAPS
 ################################################################################
-
-#' Create HUC map showing percent of total run
-create_total_huc_map <- function(final_result, all_hucs_result, gg_hist, year, watershed, 
-                                 sensitivity_threshold, min_stream_order, HUC, 
-                                 subset_label, output_filepath) {
-  
-  png(file = output_filepath, width = 12, height = 10, units = "in", res = 300, bg = "white")
-  
-  # Set up plotting layout
-  grid.newpage()
-  pushViewport(viewport(layout = grid.layout(2, 2, 
-                                             heights = unit(c(0.7, 0.3), "npc"),
-                                             widths = unit(c(0.6, 0.4), "npc"))))
-  
-  # Main map plot
-  main_plot <- ggplot() +
-    geom_sf(data = final_result, aes(fill = percent_of_total_run), color = "white", size = 0.1) +
-    scale_fill_gradientn(
-      colors = brewer.pal(9, "YlOrRd"),
-      name = "Percent of\nTotal Run",
-      na.value = "grey95",
-      labels = function(x) paste0(round(x, 1), "%"),
-      guide = guide_colorbar(barwidth = 1, barheight = 15, frame.colour = "grey40", 
-                             ticks.colour = "grey40", show.limits = TRUE)
-    ) +
-    coord_sf(datum = NA) +
-    labs(
-      title = paste0(subset_label, ": Percent of Total Run - ", watershed, " Watershed"),
-      subtitle = paste("Year", year, "- Sensitivity:", sensitivity_threshold, 
-                       "- Min Stream Order:", min_stream_order)
-    ) +
-    theme(
-      plot.title = element_text(size = 14, face = "bold", hjust = 0.5, color = "grey30"),
-      plot.subtitle = element_text(size = 10, hjust = 0.5, color = "grey50"),
-      legend.position = "right", legend.title = element_text(size = 9, face = "bold", color = "grey30"),
-      legend.text = element_text(color = "grey30"), panel.background = element_rect(fill = "white", color = NA),
-      plot.background = element_rect(fill = "white", color = NA), plot.margin = margin(5, 5, 5, 5, "mm")
-    )
-  
-  # Comparison histogram
-  huc_histogram <- create_huc_total_quartile_histogram(final_result, all_hucs_result, subset_label)
-  
-  # Plot components
-  print(main_plot, vp = viewport(layout.pos.row = 1, layout.pos.col = 1))
-  print(huc_histogram, vp = viewport(layout.pos.row = 1, layout.pos.col = 2))
-  
-  if (!is.null(gg_hist)) {
-    gg_hist <- enforce_histogram_limits(gg_hist) + 
-      theme(plot.background = element_rect(fill = "white", color = NA),
-            panel.background = element_rect(fill = "white", color = NA))
-    print(gg_hist, vp = viewport(layout.pos.row = 2, layout.pos.col = 1:2))
-  }
-  
-  dev.off()
-}
 
 #' Create tributary map showing percent of total run  
 create_total_tributary_map <- function(basin, edges, quartile_pct_of_total, priors, 

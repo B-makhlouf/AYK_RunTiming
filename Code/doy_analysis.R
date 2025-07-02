@@ -3,7 +3,7 @@
 ################################################################################
 # PURPOSE: Analyzes salmon run timing by dividing data into 4 DOY quartiles
 # OUTPUT: Shows proportion of production within each timing quartile
-# KEY: Each quartile map shows what % of that quartile's production comes from each HUC
+# KEY: Each quartile map shows what % of that quartile's production comes from each Management Unit
 ################################################################################
 
 library(sf)
@@ -24,7 +24,7 @@ source(here("code/assignment.R"))
 #' Perform DOY Quartile Analysis
 #' Creates maps showing proportion of production within each timing quartile
 DOY_Quartile_Analysis <- function(year, watershed, sensitivity_threshold, min_error, 
-                                  min_stream_order = 3, HUC = 8, 
+                                  min_stream_order = 3, 
                                   return_values = FALSE) {
   
   message(paste("=== Starting DOY Quartile Analysis for", year, watershed, "==="))
@@ -34,10 +34,9 @@ DOY_Quartile_Analysis <- function(year, watershed, sensitivity_threshold, min_er
   ################################################################################
   
   # Load spatial and natal data
-  spatial_data <- load_spatial_data(watershed, HUC, min_stream_order)
+  spatial_data <- load_spatial_data(watershed, 8, min_stream_order)
   edges <- spatial_data$edges
   basin <- spatial_data$basin
-  Huc <- spatial_data$Huc
   
   natal_data <- load_natal_data(year, watershed)
   message(paste("Loaded", nrow(natal_data), "natal data records"))
@@ -57,7 +56,6 @@ DOY_Quartile_Analysis <- function(year, watershed, sensitivity_threshold, min_er
   # CREATE OUTPUT DIRECTORIES
   ################################################################################
   
-  dir.create(here("Basin Maps/DOY_Quartile/HUC"), showWarnings = FALSE, recursive = TRUE)
   dir.create(here("Basin Maps/DOY_Quartile/Tribs"), showWarnings = FALSE, recursive = TRUE)
   
   # Storage for return values
@@ -98,12 +96,6 @@ DOY_Quartile_Analysis <- function(year, watershed, sensitivity_threshold, min_er
     basin_assign_norm <- basin_results$norm
     
     ################################################################################
-    # PROCESS HUC DATA - SHOWS PROPORTION WITHIN THIS QUARTILE
-    ################################################################################
-    
-    final_result <- process_huc_data(edges, basin, Huc, basin_assign_rescale, HUC)
-    
-    ################################################################################
     # PROCESS MANAGEMENT RIVER DATA - SHOWS PROPORTION WITHIN THIS QUARTILE
     ################################################################################
     
@@ -115,17 +107,6 @@ DOY_Quartile_Analysis <- function(year, watershed, sensitivity_threshold, min_er
     
     # Create DOY histogram showing this quartile highlighted
     gg_hist <- create_doy_histogram(natal_data, current_subset, subset_labels[q])
-    
-    ################################################################################
-    # CREATE HUC MAP - SHOWS PRODUCTION PROPORTION
-    ################################################################################
-    
-    huc_filepath <- file.path(here("Basin Maps/DOY_Quartile/HUC"), 
-                              paste0(subset_id, "_HUC", HUC, ".png"))
-    
-    # Create a simple HUC map showing production proportion
-    create_simple_huc_map(final_result, gg_hist, year, watershed, sensitivity_threshold, 
-                          min_stream_order, HUC, subset_labels[q], huc_filepath)
     
     ################################################################################
     # CREATE MANAGEMENT RIVER MAP - SHOWS PRODUCTION PROPORTION
@@ -176,7 +157,6 @@ DOY_Quartile_Analysis <- function(year, watershed, sensitivity_threshold, min_er
         label = subset_labels[q],
         basin_assign_rescale = basin_assign_rescale,
         basin_assign_norm = basin_assign_norm,
-        huc_result = final_result,
         mgmt_result = mgmt_result  # Add management result
       )
     }
@@ -195,95 +175,6 @@ DOY_Quartile_Analysis <- function(year, watershed, sensitivity_threshold, min_er
   } else {
     return(invisible(NULL))
   }
-}
-
-################################################################################
-# SIMPLIFIED HUC MAP CREATION FUNCTION
-################################################################################
-
-#' Create a simple HUC map showing production proportion
-create_simple_huc_map <- function(final_result, gg_hist, year, watershed, 
-                                  sensitivity_threshold, min_stream_order, HUC, 
-                                  subset_label, output_filepath) {
-  
-  png(file = output_filepath, width = 12, height = 10, units = "in", res = 300, bg = "white")
-  
-  # Set up plotting layout
-  grid.newpage()
-  pushViewport(viewport(layout = grid.layout(2, 2, 
-                                             heights = unit(c(0.7, 0.3), "npc"),
-                                             widths = unit(c(0.6, 0.4), "npc"))))
-  
-  # Main map plot showing production proportion
-  main_plot <- ggplot() +
-    geom_sf(data = final_result, aes(fill = production_proportion), color = "white", size = 0.1) +
-    scale_fill_gradientn(
-      colors = brewer.pal(9, "YlOrRd"),
-      name = "Production\nProportion",
-      na.value = "grey95",
-      labels = scales::percent_format(accuracy = 1),
-      guide = guide_colorbar(
-        barwidth = 1, barheight = 15,
-        frame.colour = "grey40", ticks.colour = "grey40",
-        show.limits = TRUE
-      )
-    ) +
-    coord_sf(datum = NA) +
-    labs(
-      title = paste0(subset_label, ": Production Proportion - ", watershed, " Watershed"),
-      subtitle = paste("Year", year, "- Sensitivity:", sensitivity_threshold, 
-                       "- Min Stream Order:", min_stream_order)
-    ) +
-    theme(
-      plot.title = element_text(size = 14, face = "bold", hjust = 0.5, color = "grey30"),
-      plot.subtitle = element_text(size = 10, hjust = 0.5, color = "grey50"),
-      legend.position = "right",
-      legend.title = element_text(size = 9, face = "bold", color = "grey30"),
-      legend.text = element_text(color = "grey30"),
-      panel.background = element_rect(fill = "white", color = NA),
-      plot.background = element_rect(fill = "white", color = NA),
-      plot.margin = margin(5, 5, 5, 5, "mm")
-    )
-  
-  # Create bar chart showing HUCs by production proportion
-  final_result_sorted <- final_result %>%
-    arrange(desc(production_proportion))
-  
-  bar_plot <- ggplot(final_result_sorted, 
-                     aes(x = reorder(Name, production_proportion), y = production_proportion)) +
-    geom_col(aes(fill = production_proportion), alpha = 0.9) +
-    scale_fill_gradientn(colors = brewer.pal(9, "YlOrRd"), guide = "none") +
-    coord_flip() +
-    scale_y_continuous(labels = scales::percent_format(accuracy = 1), expand = c(0, 0)) +
-    labs(title = paste("Production by", "HUC", HUC),
-         x = "", y = "Production Proportion") +
-    theme_minimal() +
-    theme(
-      plot.title = element_text(hjust = 0.5, size = 10),
-      axis.text.y = element_text(size = 7),
-      panel.grid.major.y = element_blank(),
-      plot.margin = margin(5, 10, 5, 5, "mm"),
-      plot.background = element_rect(fill = "white", color = NA),
-      panel.background = element_rect(fill = "white", color = NA)
-    )
-  
-  # Plot components
-  print(main_plot, vp = viewport(layout.pos.row = 1, layout.pos.col = 1))
-  print(bar_plot, vp = viewport(layout.pos.row = 1, layout.pos.col = 2))
-  
-  # Add histogram if provided
-  if (!is.null(gg_hist)) {
-    gg_hist_clean <- gg_hist + 
-      theme(
-        plot.background = element_rect(fill = "white", color = NA),
-        panel.background = element_rect(fill = "white", color = NA)
-      )
-    print(gg_hist_clean, vp = viewport(layout.pos.row = 2, layout.pos.col = 1:2))
-  }
-  
-  dev.off()
-  
-  message(paste("Created HUC map:", basename(output_filepath)))
 }
 
 ################################################################################
@@ -352,11 +243,47 @@ create_simple_mgmt_map <- function(mgmt_result, edges, basin, gg_hist, year, wat
     )
   
   # Create bar chart showing management rivers by production proportion
-  mgmt_result_sorted <- mgmt_result %>%
-    arrange(desc(production_proportion))
+  # Apply watershed ordering (reverse for coord_flip so upstream appears at top)
   
-  bar_plot <- ggplot(mgmt_result_sorted, 
-                     aes(x = reorder(mgmt_river, production_proportion), y = production_proportion)) +
+  # First, ensure we have the ordering functions available
+  if(!exists("get_watershed_order")) {
+    get_watershed_order <- function() {
+      # Updated to match the actual names in your data
+      c("N. Fork Kusko", "E. Fork Kuskokwim", "S. Fork Kusko",
+        "Upper Kusko Main", "Big River", "Takotna and Nixon Fork",
+        "Tatlawiksuk", "Swift", "Stony", "Holitna and Hoholitna",
+        "Middle Kusko Main", "George", "Oskakawlik", "Holokuk",
+        "Aniak", "Tuluksak", "Kisaralik", "Kwethluk", "Johnson", "Lower Kusko")
+    }
+    
+    apply_watershed_order <- function(data, mgmt_col = "mgmt_river", reverse_for_plots = FALSE) {
+      standard_order <- get_watershed_order()
+      if (reverse_for_plots) standard_order <- rev(standard_order)
+      
+      units_in_data <- unique(data[[mgmt_col]])
+      final_order <- standard_order[standard_order %in% units_in_data]
+      
+      missing_units <- setdiff(units_in_data, standard_order)
+      if (length(missing_units) > 0) {
+        warning("Found management units not in standard order: ", paste(missing_units, collapse = ", "))
+        cat("Units in data but not in standard order:\n")
+        for(unit in missing_units) cat("  -", unit, "\n")
+        final_order <- c(final_order, missing_units)
+      }
+      
+      cat("Final ordering for", mgmt_col, ":\n")
+      for(i in 1:length(final_order)) cat("  ", i, ".", final_order[i], "\n")
+      
+      data[[mgmt_col]] <- factor(data[[mgmt_col]], levels = final_order)
+      return(data)
+    }
+  }
+  
+  # Apply watershed ordering (reverse for coord_flip so upstream appears at top)
+  mgmt_result_ordered <- apply_watershed_order(mgmt_result, "mgmt_river", reverse_for_plots = TRUE)
+  
+  bar_plot <- ggplot(mgmt_result_ordered, 
+                     aes(x = mgmt_river, y = production_proportion)) +
     geom_col(aes(fill = production_proportion), alpha = 0.9) +
     scale_fill_gradientn(colors = brewer.pal(9, "YlOrRd"), guide = "none") +
     coord_flip() +
