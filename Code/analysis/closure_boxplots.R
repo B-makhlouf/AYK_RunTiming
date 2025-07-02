@@ -1,51 +1,110 @@
 ################################################################################
-# FRONT-END CLOSURE BOXPLOT - CORRECT CALCULATION WITH WATERSHED ORDERING
+# FIXED FRONT-END CLOSURE BOXPLOT WITH CORRECT WATERSHED ORDERING
 ################################################################################
 # PURPOSE: Shows what % of EACH management unit's total annual production 
-#          falls within the Q1 closure window (start through June 11)
-# NOTE: Now uses standardized watershed ordering (upstream to downstream)
+#          falls within the Q1 closure window with CORRECT watershed ordering
 ################################################################################
 
 # Load libraries
 library(dplyr)
 library(ggplot2)
+library(scales)
 
-# Load required functions - use relative path or check if functions exist
-if(!exists("get_watershed_order")) {
-  # Define watershed ordering functions directly in this script
-  get_watershed_order <- function() {
-    c("N. Fork Kusko", "E. Fork Kuskokwim River", "S. Fork Kusko",
-      "Upper Kusko Main", "Big River", "Takotna and Nixon Fork",
-      "Tatlawiksuk", "Swift", "Stony", "Holitna and Hoholitna",
-      "Middle Kusko Main", "George", "Oskakawlik", "Holokuk",
-      "Aniak", "Tuluksak", "Kisaralik", "Kwethluk", "Johnson", "Lower Kusko")
+################################################################################
+# CORRECTED WATERSHED ORDERING FUNCTIONS
+################################################################################
+
+#' Get standardized watershed ordering for all plots and analyses
+#' 
+#' @return Character vector of management unit names ordered from upstream to downstream
+get_watershed_order <- function() {
+  # Exact order from your document - upstream to downstream
+  watershed_order <- c(
+    "N. Fork Kusko",
+    "E. Fork Kuskokwim River", 
+    "S. Fork Kusko",
+    "Upper Kusko Main",
+    "Big River",
+    "Takotna and Nixon Fork",
+    "Tatlawiksuk",
+    "Swift",
+    "Stony", 
+    "Holitna",
+    "Hoholitna",
+    "Middle Kusko Main",
+    "George",
+    "Oskakawlik", 
+    "Holokuk",
+    "Aniak",
+    "Tuluksak",
+    "Kisaralik",
+    "Kwethluk",
+    "Johnson",
+    "Lower Kusko"
+  )
+  
+  return(watershed_order)
+}
+
+#' Apply watershed ordering to a data frame
+#' 
+#' @param data Data frame containing management unit column
+#' @param mgmt_col Name of the management unit column (default: "mgmt_river")
+#' @param reverse_for_plots Logical, whether to reverse order for coord_flip() plots (default: FALSE)
+#' @return Data frame with management unit column converted to ordered factor
+apply_watershed_order <- function(data, mgmt_col = "mgmt_river", reverse_for_plots = FALSE) {
+  
+  # Get the standard ordering
+  standard_order <- get_watershed_order()
+  
+  # Reverse if needed for coord_flip plots (so upstream appears at top)
+  if (reverse_for_plots) {
+    standard_order <- rev(standard_order)
   }
   
-  apply_watershed_order <- function(data, mgmt_col = "mgmt_river", reverse_for_plots = FALSE) {
-    standard_order <- get_watershed_order()
-    if (reverse_for_plots) standard_order <- rev(standard_order)
-    
-    units_in_data <- unique(data[[mgmt_col]])
-    final_order <- standard_order[standard_order %in% units_in_data]
-    
-    missing_units <- setdiff(units_in_data, standard_order)
-    if (length(missing_units) > 0) {
-      warning("Found management units not in standard order: ", paste(missing_units, collapse = ", "))
-      final_order <- c(final_order, missing_units)
+  # Filter to only units present in the data
+  units_in_data <- unique(data[[mgmt_col]])
+  final_order <- standard_order[standard_order %in% units_in_data]
+  
+  # Handle name variations/mismatches
+  # Check for common variations and map them
+  name_mapping <- c(
+    "E. Fork Kuskokwim" = "E. Fork Kuskokwim River",
+    "E. Fork Kuskokwim River" = "E. Fork Kuskokwim River"
+  )
+  
+  # Apply any name mappings if needed
+  for (old_name in names(name_mapping)) {
+    if (old_name %in% units_in_data && !(name_mapping[old_name] %in% units_in_data)) {
+      # Replace the old name with the new name in the data
+      data[[mgmt_col]][data[[mgmt_col]] == old_name] <- name_mapping[old_name]
+      units_in_data <- unique(data[[mgmt_col]])
+      final_order <- standard_order[standard_order %in% units_in_data]
     }
-    
-    data[[mgmt_col]] <- factor(data[[mgmt_col]], levels = final_order)
-    return(data)
   }
+  
+  # Add any units from data that aren't in our standard list
+  missing_units <- setdiff(units_in_data, standard_order)
+  if (length(missing_units) > 0) {
+    warning("Found management units not in standard order: ", paste(missing_units, collapse = ", "))
+    cat("Missing units that will be added at the end:\n")
+    for(unit in missing_units) cat("  -", unit, "\n")
+    final_order <- c(final_order, missing_units)
+  }
+  
+  # Apply factor ordering
+  data[[mgmt_col]] <- factor(data[[mgmt_col]], levels = final_order)
+  
+  return(data)
 }
+
+################################################################################
+# MAIN ANALYSIS WITH CORRECTED ORDERING
+################################################################################
 
 # Output directory
 OUTPUT_DIR <- "/Users/benjaminmakhlouf/Research_repos/AYK_RunTiming/Figures/Front_End_Closure_Boxplots"
 dir.create(OUTPUT_DIR, recursive = TRUE, showWarnings = FALSE)
-
-################################################################################
-# STEP 1: LOAD ALL QUARTILE DATA
-################################################################################
 
 # Load ALL quartile data (Q1, Q2, Q3, Q4) to calculate totals
 mgmt_data <- read.csv("/Users/benjaminmakhlouf/Research_repos/AYK_RunTiming/Analysis_Results/Management_River_Analysis/management_river_analysis_tidy.csv")
@@ -61,29 +120,19 @@ mgmt_data_clean <- mgmt_data %>%
     TRUE ~ quartile
   ))
 
-print(paste("Loaded data for", length(unique(mgmt_data_clean$mgmt_river)), "management units"))
-print(paste("Years available:", paste(sort(unique(mgmt_data_clean$year)), collapse = ", ")))
-print(paste("Quartiles available:", paste(sort(unique(mgmt_data_clean$quartile_clean)), collapse = ", ")))
-
-################################################################################
-# STEP 2: CALCULATE TOTAL ANNUAL PRODUCTION PER UNIT
-################################################################################
+cat("Units found in data:\n")
+unique_units <- sort(unique(mgmt_data_clean$mgmt_river))
+for(i in 1:length(unique_units)) {
+  cat(paste(i, ".", unique_units[i], "\n"))
+}
 
 # Calculate total annual production for each management unit in each year
-# Sum the total_run_prop across all quartiles (Q1+Q2+Q3+Q4)
 annual_totals <- mgmt_data_clean %>%
   group_by(year, mgmt_river) %>%
   summarise(
     total_annual_production = sum(total_run_prop, na.rm = TRUE),
     .groups = "drop"
   )
-
-print("\nSample annual totals:")
-print(head(annual_totals))
-
-################################################################################
-# STEP 3: CALCULATE Q1 CLOSURE PERCENTAGE
-################################################################################
 
 # Get Q1 production values
 q1_production <- mgmt_data_clean %>%
@@ -98,39 +147,22 @@ boxplot_data <- q1_production %>%
   ) %>%
   select(year, mgmt_river, q1_production, total_annual_production, closure_percentage)
 
-# Verify calculation with examples
-print("\n=== CALCULATION VERIFICATION ===")
-print("Sample calculations showing the formula:")
-sample_calcs <- boxplot_data %>% 
-  slice_head(n = 5) %>%
-  mutate(
-    formula_check = round((q1_production / total_annual_production) * 100, 2)
-  )
-print(sample_calcs)
-
-# Check for any issues
-missing_data <- boxplot_data %>% filter(is.na(closure_percentage))
-if(nrow(missing_data) > 0) {
-  print("\nWarning: Missing data found:")
-  print(missing_data)
-}
-
 ################################################################################
-# STEP 4: APPLY WATERSHED ORDERING
+# APPLY CORRECTED WATERSHED ORDERING
 ################################################################################
 
 # Apply watershed ordering (reverse for coord_flip so upstream appears at top)
 boxplot_data <- apply_watershed_order(boxplot_data, "mgmt_river", reverse_for_plots = TRUE)
 
-# Print the final ordering
-print("\nWatershed order applied (will appear top to bottom in plot):")
+# Print the final ordering to verify
+cat("\nCorrected watershed order applied (will appear top to bottom in plot):\n")
 final_levels <- levels(boxplot_data$mgmt_river)
 for (i in 1:length(final_levels)) {
   cat(paste(i, ".", final_levels[i], "\n"))
 }
 
 ################################################################################
-# STEP 5: CREATE BOXPLOT
+# CREATE CORRECTED BOXPLOT
 ################################################################################
 
 year_range <- paste0(min(boxplot_data$year), "-", max(boxplot_data$year))
@@ -175,15 +207,15 @@ boxplot <- ggplot(boxplot_data, aes(x = mgmt_river, y = closure_percentage)) +
   )
 
 ################################################################################
-# STEP 6: SAVE PLOT AND SUMMARY
+# SAVE AND SUMMARIZE
 ################################################################################
 
-ggsave(file.path(OUTPUT_DIR, "front_end_closure_protection_boxplot_WATERSHED_ORDERED.png"), 
+ggsave(file.path(OUTPUT_DIR, "front_end_closure_protection_boxplot_CORRECTED_ORDER.png"), 
        boxplot, width = 12, height = 10, dpi = 300, bg = "white")
 
 print(boxplot)
 
-# Summary statistics with watershed ordering maintained
+# Summary statistics with corrected watershed ordering maintained
 summary_stats <- boxplot_data %>%
   group_by(mgmt_river) %>%
   summarise(
@@ -197,14 +229,47 @@ summary_stats <- boxplot_data %>%
   # Maintain the watershed ordering in the summary
   arrange(mgmt_river)
 
-write.csv(summary_stats, file.path(OUTPUT_DIR, "closure_protection_summary_WATERSHED_ORDERED.csv"), row.names = FALSE)
+write.csv(summary_stats, file.path(OUTPUT_DIR, "closure_protection_summary_CORRECTED_ORDER.csv"), row.names = FALSE)
 
-print("\n=== SUMMARY STATISTICS (WATERSHED ORDERED) ===")
-print("Top 5 management units (upstream first):")
-print(head(summary_stats))
+cat("\n=== SUMMARY STATISTICS (CORRECTED WATERSHED ORDERING) ===\n")
+cat("Management units in correct upstream → downstream order:\n")
+for(i in 1:nrow(summary_stats)) {
+  unit_name <- summary_stats$mgmt_river[i]
+  mean_pct <- summary_stats$mean_closure_pct[i]
+  cat(paste(i, ".", unit_name, "- Mean:", mean_pct, "%\n"))
+}
 
-print("\n=== ANALYSIS COMPLETE ===")
-print("✓ Applied standardized watershed ordering (upstream → downstream)")
-print("✓ Upstream management units appear at TOP of plot")
-print("✓ Downstream management units appear at BOTTOM of plot")
-print(paste("✓ Plot saved to:", file.path(OUTPUT_DIR, "front_end_closure_protection_boxplot_WATERSHED_ORDERED.png")))
+cat("\n=== ANALYSIS COMPLETE ===\n")
+cat("✓ Applied CORRECTED standardized watershed ordering (upstream → downstream)\n")
+cat("✓ N. Fork Kusko (most upstream) appears at TOP of plot\n")
+cat("✓ Lower Kusko (most downstream) appears at BOTTOM of plot\n")
+cat(paste("✓ Plot saved to:", file.path(OUTPUT_DIR, "front_end_closure_protection_boxplot_CORRECTED_ORDER.png")))
+
+################################################################################
+# DIAGNOSTIC: CHECK FOR NAME MISMATCHES
+################################################################################
+
+cat("\n=== DIAGNOSTIC INFORMATION ===\n")
+cat("Standard watershed order:\n")
+standard_order <- get_watershed_order()
+for(i in 1:length(standard_order)) {
+  cat(paste(i, ".", standard_order[i], "\n"))
+}
+
+cat("\nUnits actually found in data:\n")
+data_units <- sort(unique(mgmt_data_clean$mgmt_river))
+for(i in 1:length(data_units)) {
+  in_standard <- data_units[i] %in% standard_order
+  cat(paste(i, ".", data_units[i], ifelse(in_standard, "(✓ in standard)", "(⚠ NOT in standard)"), "\n"))
+}
+
+# Check for potential name mismatches
+cat("\nPotential name mismatches to investigate:\n")
+mismatched <- setdiff(data_units, standard_order)
+if(length(mismatched) > 0) {
+  for(unit in mismatched) {
+    cat(paste("- '", unit, "' not found in standard order\n", sep=""))
+  }
+} else {
+  cat("All units match the standard order perfectly!\n")
+}

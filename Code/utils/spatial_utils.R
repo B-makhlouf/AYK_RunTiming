@@ -1,17 +1,17 @@
 ################################################################################
-# SPATIAL_UTILS.R - SPATIAL DATA PROCESSING UTILITIES
+# FIXED FRONT-END CLOSURE BOXPLOT WITH CORRECT WATERSHED ORDERING
 ################################################################################
-# PURPOSE: Core functions for loading and processing spatial data
-# NOTE: HUC processing removed - focus on management river analysis only
+# PURPOSE: Shows what % of EACH management unit's total annual production 
+#          falls within the Q1 closure window with CORRECT watershed ordering
 ################################################################################
 
-library(sf)
+# Load libraries
 library(dplyr)
-library(here)
-library(tidyr)
+library(ggplot2)
+library(scales)
 
 ################################################################################
-# WATERSHED ORDERING FUNCTIONS
+# CORRECTED WATERSHED ORDERING FUNCTIONS
 ################################################################################
 
 #' Get standardized watershed ordering for all plots and analyses
@@ -66,10 +66,29 @@ apply_watershed_order <- function(data, mgmt_col = "mgmt_river", reverse_for_plo
   units_in_data <- unique(data[[mgmt_col]])
   final_order <- standard_order[standard_order %in% units_in_data]
   
-  # Add any units from data that aren't in our standard list (shouldn't happen but safety check)
+  # Handle name variations/mismatches
+  # Check for common variations and map them
+  name_mapping <- c(
+    "E. Fork Kuskokwim" = "E. Fork Kuskokwim River",
+    "E. Fork Kuskokwim River" = "E. Fork Kuskokwim River"
+  )
+  
+  # Apply any name mappings if needed
+  for (old_name in names(name_mapping)) {
+    if (old_name %in% units_in_data && !(name_mapping[old_name] %in% units_in_data)) {
+      # Replace the old name with the new name in the data
+      data[[mgmt_col]][data[[mgmt_col]] == old_name] <- name_mapping[old_name]
+      units_in_data <- unique(data[[mgmt_col]])
+      final_order <- standard_order[standard_order %in% units_in_data]
+    }
+  }
+  
+  # Add any units from data that aren't in our standard list
   missing_units <- setdiff(units_in_data, standard_order)
   if (length(missing_units) > 0) {
     warning("Found management units not in standard order: ", paste(missing_units, collapse = ", "))
+    cat("Missing units that will be added at the end:\n")
+    for(unit in missing_units) cat("  -", unit, "\n")
     final_order <- c(final_order, missing_units)
   }
   
@@ -80,290 +99,177 @@ apply_watershed_order <- function(data, mgmt_col = "mgmt_river", reverse_for_plo
 }
 
 ################################################################################
-# MANAGEMENT RIVER DATA PROCESSING - PRODUCTION PROPORTION
+# MAIN ANALYSIS WITH CORRECTED ORDERING
 ################################################################################
 
-#' Process management river data showing production proportion within each management unit
-#' Similar to HUC processing but groups by mgmt_river attribute
-process_mgmt_river_data <- function(edges, basin_assign_rescale) {
-  
-  # Check if management data exists
-  if (!"mgmt_river" %in% colnames(edges)) {
-    warning("mgmt_river column not found in edges data. Management analysis will be skipped.")
-    return(NULL)
-  }
-  
-  # Add assignment values to edges
-  edges$basin_assign_rescale <- basin_assign_rescale
-  
-  # Filter to only edges that have management unit assignments (not NA or empty)
-  managed_edges <- edges[!is.na(edges$mgmt_river) & edges$mgmt_river != "", ]
-  
-  if (nrow(managed_edges) == 0) {
-    message("No edges with management unit assignments found")
-    return(NULL)
-  }
-  
-  message(paste("Found", nrow(managed_edges), "managed edges out of", nrow(edges), "total edges"))
-  
-  # CORE CALCULATION: Summarize production by management river (PROPORTION ONLY)
-  summary_mgmt <- managed_edges %>%
-    st_drop_geometry() %>%
-    group_by(mgmt_river) %>%
-    summarise(
-      total_production = sum(basin_assign_rescale, na.rm = TRUE),
-      edge_count = n(),
-      .groups = "drop"
-    ) %>%
-    mutate(production_proportion = total_production / sum(total_production, na.rm = TRUE))
-  
-  # Apply watershed ordering for consistency
-  summary_mgmt <- apply_watershed_order(summary_mgmt, "mgmt_river", reverse_for_plots = FALSE)
-  
-  return(summary_mgmt)
-}
+# Output directory
+OUTPUT_DIR <- "/Users/benjaminmakhlouf/Research_repos/AYK_RunTiming/Figures/Front_End_Closure_Boxplots"
+dir.create(OUTPUT_DIR, recursive = TRUE, showWarnings = FALSE)
 
-################################################################################
-# MANAGEMENT UNIT DATA PROCESSING
-################################################################################
+# Load ALL quartile data (Q1, Q2, Q3, Q4) to calculate totals
+mgmt_data <- read.csv("/Users/benjaminmakhlouf/Research_repos/AYK_RunTiming/Analysis_Results/Management_River_Analysis/management_river_analysis_tidy.csv")
 
-#' Process management unit data for watershed analysis
-process_management_data <- function(edges, basin_assign_rescale, grand_total_production = NULL) {
-  
-  edges$basin_assign_rescale <- basin_assign_rescale
-  
-  # Check if management data exists
-  if (!"mgmt_river" %in% colnames(edges)) {
-    warning("mgmt_river column not found in edges data. Management analysis will be skipped.")
-    return(NULL)
-  }
-  
-  # Filter to managed edges only
-  managed_edges <- edges[!is.na(edges$mgmt_river) & edges$mgmt_river != "", ]
-  
-  if (nrow(managed_edges) == 0) {
-    message("No edges with management unit assignments found")
-    return(NULL)
-  }
-  
-  # Calculate stream length and use provided total or calculate
-  managed_edges$stream_length_m <- as.numeric(st_length(managed_edges))
-  
-  if (is.null(grand_total_production)) {
-    grand_total_production <- sum(basin_assign_rescale, na.rm = TRUE)
-  }
-  
-  # Summarize by management unit
-  summary_mgmt <- managed_edges %>%
-    st_drop_geometry() %>%
-    group_by(mgmt_river) %>%
-    summarise(
-      total_production = sum(basin_assign_rescale, na.rm = TRUE),
-      total_stream_length = sum(stream_length_m, na.rm = TRUE),
-      edge_count = n(),
-      .groups = "drop"
-    ) %>%
-    mutate(
-      percent_of_total_run = (total_production / grand_total_production) * 100,
-      grand_total_production = grand_total_production
-    )
-  
-  # Apply watershed ordering for consistency
-  summary_mgmt <- apply_watershed_order(summary_mgmt, "mgmt_river", reverse_for_plots = FALSE)
-  
-  return(summary_mgmt)
-}
-
-################################################################################
-# DATA LOADING FUNCTIONS
-################################################################################
-
-#' Load spatial data for watershed analysis
-load_spatial_data <- function(watershed, HUC = 8, min_stream_order = 3) {
-  if (watershed == "Kusko") {
-    edges <- st_read("/Users/benjaminmakhlouf/Spatial Data/KuskoUSGS_HUC_joined.shp", quiet = TRUE)
-    basin <- st_read("/Users/benjaminmakhlouf/Desktop/Research/isoscapes_new/Kusko/Kusko_basin.shp", quiet = TRUE)
-  } else if (watershed == "Yukon") {
-    edges <- st_read("/Users/benjaminmakhlouf/Spatial Data/USGS Added/YukonUSGS.shp", quiet = TRUE)
-    basin <- st_read("/Users/benjaminmakhlouf/Spatial Data/Basin Map Necessary Shapefiles/Yuk_Mrg_final_alb.shp", quiet = TRUE)
-  } else {
-    stop("Watershed must be either 'Kusko' or 'Yukon'")
-  }
-  
-  # Transform and filter data
-  edges <- st_transform(edges, st_crs(basin))
-  edges <- edges[edges$Str_Order >= min_stream_order,]
-  
-  # Note: HUC loading removed since we're not using HUC maps anymore
-  # Return without HUC data
-  return(list(edges = edges, basin = basin))
-}
-
-#' Load natal origins data for specific year and watershed
-load_natal_data <- function(year, watershed) {
-  file_path <- paste0(
-    "/Users/benjaminmakhlouf/Research_repos/Schindler_GitHub/Arctic_Yukon_Kuskokwim_Data/Data/",
-    "Natal Origin Analysis Data/03_Natal Origins Genetics CPUE/",
-    year, "_", watershed, "_Natal_Origins_Genetics_CPUE.csv"
-  )
-  
-  natal_data <- read.csv(file_path)
-  
-  # Clean data by removing rows with NA in key columns
-  if (watershed == "Yukon") {
-    clean_data <- natal_data[!is.na(natal_data$Lower) & 
-                               !is.na(natal_data$natal_iso) & 
-                               !is.na(natal_data$dailyCPUEprop), ]
-  } else {
-    clean_data <- natal_data[!is.na(natal_data$natal_iso) & 
-                               !is.na(natal_data$dailyCPUEprop), ]
-  }
-  
-  return(clean_data)
-}
-
-################################################################################
-# ASSIGNMENT CALCULATION UTILITIES
-################################################################################
-
-#' Calculate error values for Bayesian assignment
-calculate_error <- function(pid_isose, min_error) {
-  # Constrain prediction errors above minimum
-  pid_isose_mod <- ifelse(pid_isose < min_error, min_error, pid_isose)
-  
-  # Calculate variance components
-  within_site <- 0.0003133684 / 1.96
-  analyt <- 0.00011 / 2
-  
-  # Combined error calculation
-  error <- sqrt(pid_isose_mod^2 + within_site^2 + analyt^2)
-  
-  return(error)
-}
-
-#' Set up watershed-specific priors for assignment
-setup_watershed_priors <- function(edges, min_stream_order, watershed, natal_data = NULL) {
-  StreamOrderPrior <- ifelse(edges$Str_Order >= min_stream_order, 1, 0)
-  
-  if (watershed == "Kusko") {
-    pid_prior <- edges$UniPh2oNoE
-    PresencePrior <- ifelse((edges$Str_Order %in% c(6, 7, 8)) & edges$SPAWNING_C == 0, 0, 1)
-    NewHabitatPrior <- ifelse(edges$Spawner_IP == 0, 0, 1)
-    
-    return(list(
-      pid_prior = pid_prior,
-      StreamOrderPrior = StreamOrderPrior,
-      PresencePrior = PresencePrior,
-      NewHabitatPrior = NewHabitatPrior
-    ))
-    
-  } else if (watershed == "Yukon") {
-    pid_prior <- edges$PriorSl2
-    
-    # Load Yukon genetic groups
-    ly.gen <- st_read(here("/Users/benjaminmakhlouf/Desktop/Research/isoscapes_new/Yukon/For_Sean/edges_LYGen.shp"), quiet = TRUE)
-    ly.gen_reachid <- ly.gen$reachid
-    my.gen <- st_read("/Users/benjaminmakhlouf/Desktop/Research/isoscapes_new/Yukon/For_Sean/edges_MYGen.shp", quiet = TRUE)
-    my.gen_reachid <- my.gen$reachid
-    uy.gen <- st_read("/Users/benjaminmakhlouf/Desktop/Research/isoscapes_new/Yukon/For_Sean/edges_UYGen.shp", quiet = TRUE)
-    uy.gen_reachid <- uy.gen$reachid
-    
-    edges$GenLMU <- 0
-    edges$GenLMU[edges$reachid %in% ly.gen_reachid] <- "lower"
-    edges$GenLMU[edges$reachid %in% my.gen_reachid] <- "middle"
-    edges$GenLMU[edges$reachid %in% uy.gen_reachid] <- "upper"
-    
-    LYsites <- which(edges$GenLMU == "lower")
-    MYsites <- which(edges$GenLMU == "middle")
-    UYsites <- which(edges$GenLMU == "upper")
-    
-    PresencePrior <- ifelse((edges$Str_Order %in% c(7, 8, 9)) & edges$SPAWNING_C == 0, 0, 1)
-    NewHabitatPrior <- ifelse(edges$Spawner_IP == 0, 0, 1)
-    
-    return(list(
-      pid_prior = pid_prior,
-      StreamOrderPrior = StreamOrderPrior,
-      PresencePrior = PresencePrior,
-      NewHabitatPrior = NewHabitatPrior,
-      LYsites = LYsites,
-      MYsites = MYsites,
-      UYsites = UYsites
-    ))
-  }
-}
-
-################################################################################
-# DOY QUARTILE DIVISION
-################################################################################
-
-#' Divide natal data into custom DOY quartiles
-divide_doy_quartiles <- function(natal_data) {
-  # Handle different date formats
-  if ("Date" %in% colnames(natal_data)) {
-    # Try to convert Date column to proper Date format
-    if (!inherits(natal_data$Date, "Date")) {
-      natal_data$Date <- as.Date(natal_data$Date)
-    }
-    year <- format(natal_data$Date[1], "%Y")
-  } else {
-    # Fall back to extracting year from DOY (assuming current approach)
-    # You'll need to specify which year this data represents
-    warning("No Date column found, using DOY. Please specify year manually.")
-    year <- "2020"  # Default - change this to match your data year
-  }
-  
-  # Define fixed break dates for this year
-  june_11 <- as.Date(paste0(year, "-06-11"))
-  june_21 <- as.Date(paste0(year, "-06-21"))  
-  july_01 <- as.Date(paste0(year, "-07-01"))
-  
-  # Create quartile subsets using actual dates
-  if ("Date" %in% colnames(natal_data)) {
-    quartile_subsets <- list(
-      natal_data %>% filter(Date <= june_11),           # Q1: Start to Jun 11
-      natal_data %>% filter(Date > june_11 & Date <= june_21), # Q2: Jun 12-21
-      natal_data %>% filter(Date > june_21 & Date <= july_01), # Q3: Jun 22-Jul 1  
-      natal_data %>% filter(Date > july_01)             # Q4: Jul 2-End
-    )
-  } else {
-    # Fall back to DOY-based filtering
-    june_11_doy <- as.numeric(format(june_11, "%j"))
-    june_21_doy <- as.numeric(format(june_21, "%j"))
-    july_01_doy <- as.numeric(format(july_01, "%j"))
-    
-    quartile_subsets <- list(
-      natal_data %>% filter(DOY <= june_11_doy),           
-      natal_data %>% filter(DOY > june_11_doy & DOY <= june_21_doy), 
-      natal_data %>% filter(DOY > june_21_doy & DOY <= july_01_doy),  
-      natal_data %>% filter(DOY > july_01_doy)             
-    )
-  }
-  
-  # Convert to DOY for labels
-  june_11_doy <- as.numeric(format(june_11, "%j"))
-  june_21_doy <- as.numeric(format(june_21, "%j"))
-  july_01_doy <- as.numeric(format(july_01, "%j"))
-  
-  # Create labels
-  subset_labels <- c(
-    sprintf("DOY Q1: Start-%d (to Jun 11)", june_11_doy),
-    sprintf("DOY Q2: %d-%d (Jun 12-21)", june_11_doy + 1, june_21_doy),
-    sprintf("DOY Q3: %d-%d (Jun 22-Jul 1)", june_21_doy + 1, july_01_doy),
-    sprintf("DOY Q4: %d-End (Jul 2+)", july_01_doy + 1)
-  )
-  
-  # DOY breaks for compatibility
-  doy_breaks <- c(
-    min(natal_data$DOY, na.rm = TRUE),
-    june_11_doy,
-    june_21_doy, 
-    july_01_doy,
-    max(natal_data$DOY, na.rm = TRUE)
-  )
-  
-  return(list(
-    subsets = quartile_subsets,
-    breaks = doy_breaks,
-    labels = subset_labels
+# Remove Johnson river and clean quartile names
+mgmt_data_clean <- mgmt_data %>%
+  filter(mgmt_river != "Johnson") %>%
+  mutate(quartile_clean = case_when(
+    quartile == "Q1" ~ "Q1",
+    quartile == "Q2" ~ "Q2", 
+    quartile == "Q3" ~ "Q3",
+    quartile == "Q4" ~ "Q4",
+    TRUE ~ quartile
   ))
+
+cat("Units found in data:\n")
+unique_units <- sort(unique(mgmt_data_clean$mgmt_river))
+for(i in 1:length(unique_units)) {
+  cat(paste(i, ".", unique_units[i], "\n"))
+}
+
+# Calculate total annual production for each management unit in each year
+annual_totals <- mgmt_data_clean %>%
+  group_by(year, mgmt_river) %>%
+  summarise(
+    total_annual_production = sum(total_run_prop, na.rm = TRUE),
+    .groups = "drop"
+  )
+
+# Get Q1 production values
+q1_production <- mgmt_data_clean %>%
+  filter(quartile_clean == "Q1") %>%
+  select(year, mgmt_river, q1_production = total_run_prop)
+
+# Join Q1 with annual totals and calculate closure percentage
+boxplot_data <- q1_production %>%
+  left_join(annual_totals, by = c("year", "mgmt_river")) %>%
+  mutate(
+    closure_percentage = (q1_production / total_annual_production) * 100
+  ) %>%
+  select(year, mgmt_river, q1_production, total_annual_production, closure_percentage)
+
+################################################################################
+# APPLY CORRECTED WATERSHED ORDERING
+################################################################################
+
+# Apply watershed ordering (reverse for coord_flip so upstream appears at top)
+boxplot_data <- apply_watershed_order(boxplot_data, "mgmt_river", reverse_for_plots = TRUE)
+
+# Print the final ordering to verify
+cat("\nCorrected watershed order applied (will appear top to bottom in plot):\n")
+final_levels <- levels(boxplot_data$mgmt_river)
+for (i in 1:length(final_levels)) {
+  cat(paste(i, ".", final_levels[i], "\n"))
+}
+
+################################################################################
+# CREATE CORRECTED BOXPLOT
+################################################################################
+
+year_range <- paste0(min(boxplot_data$year), "-", max(boxplot_data$year))
+
+boxplot <- ggplot(boxplot_data, aes(x = mgmt_river, y = closure_percentage)) +
+  geom_boxplot(
+    fill = "lightblue", 
+    alpha = 0.7, 
+    outlier.size = 2.5,
+    outlier.shape = 16,
+    linewidth = 0.6,
+    color = "darkblue"
+  ) +
+  coord_flip() +
+  scale_y_continuous(
+    labels = function(x) paste0(round(x, 1), "%"),
+    limits = c(0, max(boxplot_data$closure_percentage, na.rm = TRUE) * 1.05),
+    expand = expansion(mult = c(0.02, 0.05))
+  ) +
+  labs(
+    title = "Front-End Closure Protection by Management Unit",
+    subtitle = paste("% of EACH UNIT'S total annual production within Q1 closure window | Watershed order: upstream → downstream | Years:", year_range),
+    x = "Management Unit (Watershed Position: Upstream → Downstream)",
+    y = "% of Unit's Total Annual Production in Q1 Closure Window",
+    caption = "Shows what % of each unit's total annual production (Q1+Q2+Q3+Q4) occurs within Q1 closure period\nOrdered by position in watershed from headwaters (top) to mouth (bottom)"
+  ) +
+  theme_minimal(base_size = 12) +
+  theme(
+    plot.title = element_text(face = "bold", size = 16, hjust = 0.5, color = "grey20"),
+    plot.subtitle = element_text(size = 12, hjust = 0.5, color = "gray40"),
+    plot.caption = element_text(size = 10, hjust = 0.5, face = "italic", color = "gray50"),
+    panel.grid.minor = element_blank(),
+    panel.grid.major.y = element_blank(),
+    panel.grid.major.x = element_line(color = "gray90", linewidth = 0.3),
+    axis.title = element_text(face = "bold", size = 12),
+    axis.text.y = element_text(size = 11),
+    axis.text.x = element_text(size = 10),
+    plot.background = element_rect(fill = "white", color = NA),
+    panel.background = element_rect(fill = "white", color = NA),
+    plot.margin = margin(15, 15, 15, 15),
+    panel.border = element_rect(color = "gray80", fill = NA, linewidth = 0.5)
+  )
+
+################################################################################
+# SAVE AND SUMMARIZE
+################################################################################
+
+ggsave(file.path(OUTPUT_DIR, "front_end_closure_protection_boxplot_CORRECTED_ORDER.png"), 
+       boxplot, width = 12, height = 10, dpi = 300, bg = "white")
+
+print(boxplot)
+
+# Summary statistics with corrected watershed ordering maintained
+summary_stats <- boxplot_data %>%
+  group_by(mgmt_river) %>%
+  summarise(
+    mean_closure_pct = round(mean(closure_percentage, na.rm = TRUE), 1),
+    median_closure_pct = round(median(closure_percentage, na.rm = TRUE), 1),
+    min_closure_pct = round(min(closure_percentage, na.rm = TRUE), 1),
+    max_closure_pct = round(max(closure_percentage, na.rm = TRUE), 1),
+    n_years = n(),
+    .groups = "drop"
+  ) %>%
+  # Maintain the watershed ordering in the summary
+  arrange(mgmt_river)
+
+write.csv(summary_stats, file.path(OUTPUT_DIR, "closure_protection_summary_CORRECTED_ORDER.csv"), row.names = FALSE)
+
+cat("\n=== SUMMARY STATISTICS (CORRECTED WATERSHED ORDERING) ===\n")
+cat("Management units in correct upstream → downstream order:\n")
+for(i in 1:nrow(summary_stats)) {
+  unit_name <- summary_stats$mgmt_river[i]
+  mean_pct <- summary_stats$mean_closure_pct[i]
+  cat(paste(i, ".", unit_name, "- Mean:", mean_pct, "%\n"))
+}
+
+cat("\n=== ANALYSIS COMPLETE ===\n")
+cat("✓ Applied CORRECTED standardized watershed ordering (upstream → downstream)\n")
+cat("✓ N. Fork Kusko (most upstream) appears at TOP of plot\n")
+cat("✓ Lower Kusko (most downstream) appears at BOTTOM of plot\n")
+cat(paste("✓ Plot saved to:", file.path(OUTPUT_DIR, "front_end_closure_protection_boxplot_CORRECTED_ORDER.png")))
+
+################################################################################
+# DIAGNOSTIC: CHECK FOR NAME MISMATCHES
+################################################################################
+
+cat("\n=== DIAGNOSTIC INFORMATION ===\n")
+cat("Standard watershed order:\n")
+standard_order <- get_watershed_order()
+for(i in 1:length(standard_order)) {
+  cat(paste(i, ".", standard_order[i], "\n"))
+}
+
+cat("\nUnits actually found in data:\n")
+data_units <- sort(unique(mgmt_data_clean$mgmt_river))
+for(i in 1:length(data_units)) {
+  in_standard <- data_units[i] %in% standard_order
+  cat(paste(i, ".", data_units[i], ifelse(in_standard, "(✓ in standard)", "(⚠ NOT in standard)"), "\n"))
+}
+
+# Check for potential name mismatches
+cat("\nPotential name mismatches to investigate:\n")
+mismatched <- setdiff(data_units, standard_order)
+if(length(mismatched) > 0) {
+  for(unit in mismatched) {
+    cat(paste("- '", unit, "' not found in standard order\n", sep=""))
+  }
+} else {
+  cat("All units match the standard order perfectly!\n")
 }
