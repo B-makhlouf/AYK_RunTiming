@@ -785,9 +785,9 @@ message("=== Running Complete Analysis Suite ===")
 message("1. Starting DOY Quartile Analysis (Management Rivers only) with CSV export...")
 run_doy_analysis(years, watersheds, export_csv = TRUE)
 
-# 2. DOY Total (tributary maps only - no HUC maps)
-message("2. Starting DOY Total Analysis (Tributary maps only)...")
-run_doy_total_analysis(years, watersheds, export_csv = FALSE)
+# # 2. DOY Total (tributary maps only - no HUC maps)
+# message("2. Starting DOY Total Analysis (Tributary maps only)...")
+# run_doy_total_analysis(years, watersheds, export_csv = FALSE)
 
 # 3. Front-end Closure Boxplot Analysis
 message("3. Starting Front-end Closure Boxplot Analysis...")
