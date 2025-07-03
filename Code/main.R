@@ -1,13 +1,12 @@
 ################################################################################
-# MAIN.R - COMPLETE SALMON RUN TIMING ANALYSIS SUITE
+# MAIN.R - SALMON RUN TIMING ANALYSIS SUITE (CLEANED - NO DFA)
 ################################################################################
 # PURPOSE: Creates management river maps and exports CSV data:
 #   1. DOY_Quartile: Shows proportion within each timing quartile
-#   2. DOY_Total: Shows proportion of total annual run 
-#   3. Front-end Closure: Shows protection during closure window
-#   4. Average Quartile Maps: Shows average production across all years
-#   5. Cumulative Distribution: Shows timing progression by management unit
-# NOTE: HUC map creation removed - only management river analysis
+#   2. Front-end Closure: Shows protection during closure window
+#   3. Average Quartile Maps: Shows average production across all years
+#   4. Cumulative Distribution: Shows timing progression by management unit
+# NOTE: DFA-related functions removed - only core spatial analysis
 ################################################################################
 
 ################################################################################
@@ -25,20 +24,97 @@ library(scales)
 library(readr)
 library(png)
 
-# Source required files (keeping existing structure)
+# Source required files for spatial analysis only
 source(here("code/utils/spatial_utils.R"))
 source(here("code/utils/visualization.R"))
 source(here("code/assignment.R"))
 source(here("code/doy_analysis.R"))
-source(here("code/doy_total_analysis.R"))
+
+################################################################################
+# CORRECTED WATERSHED ORDERING FUNCTIONS
+################################################################################
+
+#' Get standardized watershed ordering for all plots and analyses (CORRECTED)
+get_watershed_order <- function() {
+  # Exact order from your document - upstream to downstream
+  watershed_order <- c(
+    "N. Fork Kusko",
+    "E. Fork Kuskokwim River", 
+    "S. Fork Kusko",
+    "Upper Kusko Main",
+    "Big River",
+    "Takotna and Nixon Fork",
+    "Tatlawiksuk",
+    "Swift",
+    "Stony", 
+    "Holitna",
+    "Hoholitna",
+    "Middle Kusko Main",
+    "George",
+    "Oskakawlik", 
+    "Holokuk",
+    "Aniak",
+    "Tuluksak",
+    "Kisaralik",
+    "Kwethluk",
+    "Johnson",
+    "Lower Kusko"
+  )
+  
+  return(watershed_order)
+}
+
+#' Apply watershed ordering to a data frame (CORRECTED)
+apply_watershed_order <- function(data, mgmt_col = "mgmt_river", reverse_for_plots = FALSE) {
+  
+  # Get the standard ordering
+  standard_order <- get_watershed_order()
+  
+  # Reverse if needed for coord_flip plots (so upstream appears at top)
+  if (reverse_for_plots) {
+    standard_order <- rev(standard_order)
+  }
+  
+  # Filter to only units present in the data
+  units_in_data <- unique(data[[mgmt_col]])
+  final_order <- standard_order[standard_order %in% units_in_data]
+  
+  # Handle name variations/mismatches
+  name_mapping <- c(
+    "E. Fork Kuskokwim" = "E. Fork Kuskokwim River"
+  )
+  
+  # Apply any name mappings if needed
+  for (old_name in names(name_mapping)) {
+    if (old_name %in% units_in_data && !(name_mapping[old_name] %in% units_in_data)) {
+      data[[mgmt_col]][data[[mgmt_col]] == old_name] <- name_mapping[old_name]
+      units_in_data <- unique(data[[mgmt_col]])
+      final_order <- standard_order[standard_order %in% units_in_data]
+    }
+  }
+  
+  # Add any units from data that aren't in our standard list
+  missing_units <- setdiff(units_in_data, standard_order)
+  if (length(missing_units) > 0) {
+    warning("Found management units not in standard order: ", paste(missing_units, collapse = ", "))
+    message("Missing units (will be added at end):")
+    for(unit in missing_units) message("  - ", unit)
+    final_order <- c(final_order, missing_units)
+  }
+  
+  # Apply factor ordering
+  data[[mgmt_col]] <- factor(data[[mgmt_col]], levels = final_order)
+  
+  return(data)
+}
 
 ################################################################################
 # UTILITY FUNCTIONS
 ################################################################################
 
-#' Clean previous output files
+#' Clean previous output files for core analyses only
 clean_outputs <- function() {
-  dirs_to_clean <- c("DOY_Quartile", "DOY_Total", "FrontEnd_Closure")
+  dirs_to_clean <- c("DOY_Quartile", "FrontEnd_Closure")
   
   for (dir in dirs_to_clean) {
     full_path <- here("Basin Maps", dir)
@@ -68,7 +144,7 @@ get_params <- function(watershed) {
 # PURPOSE: Shows what proportion of production occurs within each timing quartile
 ################################################################################
 
-#' Run DOY Quartile Analysis with optional CSV export - Management Rivers Only
+#' Run DOY Quartile Analysis with CSV export - Management Rivers Only
 run_doy_analysis <- function(years, watersheds, export_csv = TRUE) {
   clean_outputs()
   
@@ -88,7 +164,6 @@ run_doy_analysis <- function(years, watersheds, export_csv = TRUE) {
         sensitivity_threshold = params$sensitivity_threshold,
         min_error = params$min_error,
         min_stream_order = params$min_stream_order,
-        HUC = 8,
         return_values = export_csv  # Only get return values if we're exporting
       )
       
@@ -115,47 +190,14 @@ run_doy_analysis <- function(years, watersheds, export_csv = TRUE) {
 }
 
 ################################################################################
-# ANALYSIS 2: DOY TOTAL ANALYSIS (MANAGEMENT RIVERS ONLY)
-# PURPOSE: Shows what proportion of the TOTAL ANNUAL RUN each quartile represents
-################################################################################
-
-#' Run DOY Total Analysis with optional CSV export - Management Rivers Only
-run_doy_total_analysis <- function(years, watersheds, export_csv = TRUE) {
-  
-  # Note: This analysis doesn't create HUC maps by default, only tributary maps
-  # So we can keep it as-is but just skip any HUC-related processing
-  
-  for (watershed in watersheds) {
-    for (year in years) {
-      params <- get_params(watershed)
-      
-      message(paste("Processing DOY total (Management Rivers only):", year, watershed))
-      
-      # Run analysis - this will create tributary maps but not HUC maps
-      results <- DOY_Total_Analysis(
-        year = year,
-        watershed = watershed,
-        sensitivity_threshold = params$sensitivity_threshold,
-        min_error = params$min_error,
-        min_stream_order = params$min_stream_order,
-        HUC = 8,
-        return_values = FALSE  # We don't need return values for this
-      )
-    }
-  }
-  
-  message("DOY Total Analysis complete - tributary maps created")
-}
-
-################################################################################
-# ANALYSIS 3: FRONT-END CLOSURE BOXPLOT ANALYSIS
+# ANALYSIS 2: FRONT-END CLOSURE BOXPLOT ANALYSIS (CORRECTED ORDERING)
 # PURPOSE: Shows what % of each management unit's production falls within Q1 closure
 ################################################################################
 
-#' Run Front-end Closure Boxplot Analysis Only
+#' Run Front-end Closure Boxplot Analysis with CORRECTED watershed ordering
 run_closure_boxplot_analysis <- function(years, watershed = "Kusko") {
   
-  message("=== Starting Front-End Closure Boxplot Analysis ===")
+  message("=== Starting Front-End Closure Boxplot Analysis (CORRECTED ORDERING) ===")
   
   # Output directory
   OUTPUT_DIR <- here("Figures/Front_End_Closure_Boxplots")
@@ -186,6 +228,13 @@ run_closure_boxplot_analysis <- function(years, watershed = "Kusko") {
   message(paste("Loaded data for", length(unique(mgmt_data_clean$mgmt_river)), "management units"))
   message(paste("Years:", paste(sort(unique(mgmt_data_clean$year)), collapse = ", ")))
   
+  # Print units found in data for diagnostic
+  message("Management units found in data:")
+  data_units <- sort(unique(mgmt_data_clean$mgmt_river))
+  for(i in 1:length(data_units)) {
+    message(paste("  ", i, ".", data_units[i]))
+  }
+  
   # Calculate total annual production for each management unit in each year
   # Sum the total_run_prop across all quartiles (Q1+Q2+Q3+Q4)
   annual_totals <- mgmt_data_clean %>%
@@ -208,26 +257,19 @@ run_closure_boxplot_analysis <- function(years, watershed = "Kusko") {
     ) %>%
     select(year, mgmt_river, q1_production, total_annual_production, closure_percentage)
   
-  # Set watershed order (upstream to downstream)
-  watershed_order <- c(
-    "N. Fork Kusko", "E. Fork Kuskokwim", "S. Fork Kusko", 
-    "Takotna and Nixon Fork", "Big River", "Upper Kusko Main",
-    "Tatlawiksuk", "Kwethluk", "Stony", "Swift",
-    "Holitna and Hoholitna", "George", "Oskakawlik", 
-    "Middle Kusko Main", "Holokuk", "Aniak", "Tuluksak",
-    "Kisaralik", "Hoholitna", "Johnson", "Lower Kusko"
-  )
+  # Apply CORRECTED watershed ordering (reverse for coord_flip so upstream appears at top)
+  boxplot_data <- apply_watershed_order(boxplot_data, "mgmt_river", reverse_for_plots = TRUE)
   
-  # Filter to units present in data, maintain watershed order
-  units_in_data <- unique(boxplot_data$mgmt_river)
-  final_order <- watershed_order[watershed_order %in% units_in_data]
-  
-  # Apply ordering (reverse for coord_flip so upstream appears at top)
-  boxplot_data$mgmt_river <- factor(boxplot_data$mgmt_river, levels = rev(final_order))
+  # Print the final ordering to verify
+  message("\nCorrected watershed order applied (will appear top to bottom in plot):")
+  final_levels <- levels(boxplot_data$mgmt_river)
+  for (i in 1:length(final_levels)) {
+    message(paste("  ", i, ".", final_levels[i]))
+  }
   
   year_range <- paste0(min(boxplot_data$year), "-", max(boxplot_data$year))
   
-  # Create boxplot
+  # Create boxplot with corrected ordering
   boxplot <- ggplot(boxplot_data, aes(x = mgmt_river, y = closure_percentage)) +
     geom_boxplot(
       fill = "lightblue", 
@@ -245,10 +287,10 @@ run_closure_boxplot_analysis <- function(years, watershed = "Kusko") {
     ) +
     labs(
       title = "Front-End Closure Protection by Management Unit",
-      subtitle = paste("% of EACH UNIT'S total annual production within Q1 closure window | Years:", year_range),
+      subtitle = paste("% of EACH UNIT'S total annual production within Q1 closure window | Watershed order: upstream → downstream | Years:", year_range),
       x = "Management Unit (Watershed Position: upstream → downstream)",
       y = "% of Unit's Total Annual Production in Q1 Closure Window",
-      caption = "Shows what % of each unit's total annual production (Q1+Q2+Q3+Q4) occurs within Q1 closure period"
+      caption = "Shows what % of each unit's total annual production (Q1+Q2+Q3+Q4) occurs within Q1 closure period\nOrdered by position in watershed from headwaters (top) to mouth (bottom)"
     ) +
     theme_minimal(base_size = 12) +
     theme(
@@ -268,10 +310,10 @@ run_closure_boxplot_analysis <- function(years, watershed = "Kusko") {
     )
   
   # Save boxplot
-  ggsave(file.path(OUTPUT_DIR, "front_end_closure_protection_boxplot.png"), 
+  ggsave(file.path(OUTPUT_DIR, "front_end_closure_protection_boxplot_CORRECTED.png"), 
          boxplot, width = 12, height = 10, dpi = 300, bg = "white")
   
-  # Summary statistics
+  # Summary statistics with corrected watershed ordering maintained
   summary_stats <- boxplot_data %>%
     group_by(mgmt_river) %>%
     summarise(
@@ -282,28 +324,27 @@ run_closure_boxplot_analysis <- function(years, watershed = "Kusko") {
       n_years = n(),
       .groups = "drop"
     ) %>%
-    mutate(mgmt_river = factor(mgmt_river, levels = final_order)) %>%
+    # Maintain the watershed ordering in the summary
     arrange(mgmt_river)
   
-  write.csv(summary_stats, file.path(OUTPUT_DIR, "closure_protection_summary.csv"), row.names = FALSE)
+  write.csv(summary_stats, file.path(OUTPUT_DIR, "closure_protection_summary_CORRECTED.csv"), row.names = FALSE)
   
-  message(paste("Front-end closure boxplot completed. Saved to:", OUTPUT_DIR))
+  message(paste("Front-end closure boxplot completed (CORRECTED). Saved to:", OUTPUT_DIR))
   message("Created:")
-  message("  - front_end_closure_protection_boxplot.png")
-  message("  - closure_protection_summary.csv")
+  message("  - front_end_closure_protection_boxplot_CORRECTED.png")
+  message("  - closure_protection_summary_CORRECTED.csv")
   
   return(boxplot_data)
 }
 
 ################################################################################
-# ANALYSIS 4: AVERAGE QUARTILE MAPS
+# ANALYSIS 3: AVERAGE QUARTILE MAPS
 # PURPOSE: Shows average production across all years by quartile
 ################################################################################
 
-#' Run Average Quartile Maps Analysis
 run_average_quartile_analysis <- function(years, watershed = "Kusko") {
   
-  message("=== Starting Average Quartile Maps Analysis ===")
+  message("=== Starting Average Quartile Maps Analysis with Boxplots (FIXED 0-20% SCALE) ===")
   
   # Set file paths
   DATA_PATH <- here("Analysis_Results/Management_River_Analysis/management_river_analysis_tidy.csv")
@@ -337,12 +378,16 @@ run_average_quartile_analysis <- function(years, watershed = "Kusko") {
   available_years <- sort(unique(mgmt_data$year))
   year_range <- paste0(min(available_years), "-", max(available_years))
   
-  message(paste("Creating average maps for years:", year_range))
+  message(paste("Creating average maps and boxplots for years:", year_range))
   message(paste("Found", length(unique(mgmt_data$mgmt_river)), "management units"))
   
   # Load spatial data
   edges <- st_read(SPATIAL_PATH, quiet = TRUE)
   basin <- st_read(BASIN_PATH, quiet = TRUE)
+  
+  ################################################################################
+  # PART 1: CREATE AVERAGE MAPS (unchanged)
+  ################################################################################
   
   # Calculate average production by quartile
   avg_production_by_quartile <- mgmt_data %>%
@@ -355,6 +400,9 @@ run_average_quartile_analysis <- function(years, watershed = "Kusko") {
     # Convert to the same scale as original maps (0-1 proportion)
     mutate(production_proportion = avg_within_quartile_prop)
   
+  # Apply corrected watershed ordering
+  avg_production_by_quartile <- apply_watershed_order(avg_production_by_quartile, "mgmt_river", reverse_for_plots = FALSE)
+  
   # Create maps for each quartile
   for (q in c("Q1", "Q2", "Q3", "Q4")) {
     message(paste("Creating average map for", q))
@@ -365,7 +413,7 @@ run_average_quartile_analysis <- function(years, watershed = "Kusko") {
       filter(!is.na(production_proportion))
     
     # Create map with exact original styling
-    map_filename <- paste0("Average_", q, "_Management_", year_range, ".png")
+    map_filename <- paste0("Average_", q, "_Management_", year_range, "_CORRECTED.png")
     map_filepath <- file.path(OUTPUT_DIR, map_filename)
     
     create_average_mgmt_map(quartile_data, q, map_filepath, year_range, edges, basin)
@@ -373,83 +421,167 @@ run_average_quartile_analysis <- function(years, watershed = "Kusko") {
   
   # Save average production data
   write_csv(avg_production_by_quartile, 
-            file.path(OUTPUT_DIR, paste0("average_production_by_quartile_", year_range, ".csv")))
+            file.path(OUTPUT_DIR, paste0("average_production_by_quartile_", year_range, "_CORRECTED.csv")))
   
-  message(paste("Average quartile maps completed. Saved to:", OUTPUT_DIR))
-}
-
-#' Create management map identical to original DOY_Quartile/Management style
-create_average_mgmt_map <- function(quartile_data, quartile_label, output_filepath, year_range, edges, basin) {
+  ################################################################################
+  # PART 2: CREATE VARIABILITY BOXPLOTS WITH FIXED 0-20% SCALE
+  ################################################################################
   
-  # Create the PNG with dimensions for single map (no bar plot)
-  png(file = output_filepath, width = 10, height = 8, units = "in", res = 300, bg = "white")
+  message("Creating variability boxplots with fixed 0-20% scale...")
   
-  # Join with spatial data and set up linewidths like DFA maps
-  edges_with_data <- edges %>%
-    left_join(quartile_data, by = "mgmt_river") %>%
-    filter(!is.na(mgmt_river) & mgmt_river != "") %>%
-    mutate(
-      # Set production proportion (handle NA values)
-      production_proportion = ifelse(is.na(production_proportion), 0, production_proportion),
-      # Set stream order and linewidth exactly like DFA maps
-      stream_order = ifelse(is.na(Str_Order), 3, Str_Order),
-      line_width = pmax(0.3, pmin(3.0, 0.3 + (stream_order - min(stream_order, na.rm = TRUE)) * 
-                                    (3.0 - 0.3) / (max(stream_order, na.rm = TRUE) - min(stream_order, na.rm = TRUE))))
-    )
+  # Prepare data for boxplots - show variability in EACH QUARTILE across years
+  quartile_boxplot_data <- mgmt_data %>%
+    select(year, mgmt_river, quartile_clean, within_quartile_prop) %>%
+    # Convert to percentage for easier interpretation
+    mutate(within_quartile_pct = within_quartile_prop * 100)
   
-  # Ensure consistent CRS
-  if (st_crs(basin) != st_crs(edges_with_data)) {
-    basin <- st_transform(basin, st_crs(edges_with_data))
+  # Apply watershed ordering (reverse for coord_flip so upstream appears at top)
+  quartile_boxplot_data <- apply_watershed_order(quartile_boxplot_data, "mgmt_river", reverse_for_plots = TRUE)
+  
+  # Create individual boxplot for each quartile with FIXED 0-20% SCALE
+  for (q in c("Q1", "Q2", "Q3", "Q4")) {
+    message(paste("Creating boxplot for", q, "with fixed 0-20% scale"))
+    
+    # Filter data for this quartile
+    q_data <- quartile_boxplot_data %>%
+      filter(quartile_clean == q)
+    
+    # Create boxplot for this quartile with FIXED SCALE
+    q_boxplot <- ggplot(q_data, aes(x = mgmt_river, y = within_quartile_pct)) +
+      geom_boxplot(
+        fill = "grey90", 
+        alpha = 0.7, 
+        outlier.alpha = 0.8,
+        outlier.size = 2.5,
+        outlier.shape = 16,
+        linewidth = 0.6
+      ) +
+      # FIXED SCALE: 0-20% for all quartiles
+      scale_y_continuous(
+        labels = function(x) paste0(round(x, 1), "%"),
+        limits = c(0, 20),  # FIXED RANGE: 0-20%
+        breaks = seq(0, 20, by = 5),  # Breaks at 0, 5, 10, 15, 20
+        expand = expansion(mult = c(0, 0.02))  # Small expansion at top only
+      ) +
+      coord_flip() +
+      labs(
+        title = paste("Management Unit Production Variability:", q),
+        subtitle = paste("Within-", q, " production for each management unit across years (", year_range, ") | Watershed order: upstream → downstream", sep = ""),
+        x = "Management Unit (Watershed Position)",
+        y = paste(q, "Production (%)"),
+        caption = "Boxes show median, quartiles, and whiskers; dots show outliers | Ordered by watershed position (upstream at top)"
+      ) +
+      theme_minimal(base_size = 12) +
+      theme(
+        plot.title = element_text(face = "bold", size = 16, hjust = 0.5, color = "grey50"),
+        plot.subtitle = element_text(size = 12, hjust = 0.5, color = "gray40"),
+        plot.caption = element_text(size = 10, hjust = 0.5, face = "italic", color = "gray50"),
+        panel.grid.minor = element_blank(),
+        panel.grid.major.y = element_blank(),
+        panel.grid.major.x = element_line(color = "gray90", linewidth = 0.3),
+        axis.title = element_text(face = "bold", size = 12),
+        axis.text.y = element_text(size = 11),
+        axis.text.x = element_text(size = 10),
+        plot.background = element_rect(fill = "white", color = NA),
+        panel.background = element_rect(fill = "white", color = NA),
+        plot.margin = margin(15, 15, 15, 15),
+        panel.border = element_rect(color = "gray80", fill = NA, linewidth = 0.5)
+      )
+    
+    # Save individual quartile boxplot with fixed scale
+    ggsave(file.path(OUTPUT_DIR, paste0("management_unit_", q, "_boxplot_CORRECTED.png")), 
+           q_boxplot, width = 12, height = 10, dpi = 300, bg = "white")
   }
   
-  # Main map plot - single map without bar chart
-  main_plot <- ggplot() +
-    geom_sf(data = basin, fill = "gray95", color = "gray70", 
-            linewidth = 0.5, alpha = 0.3) +
-    geom_sf(data = edges_with_data, 
-            aes(color = production_proportion, linewidth = stream_order), 
-            alpha = 0.8) +
-    scale_color_gradientn(
-      colors = brewer.pal(9, "YlOrRd"),
-      name = "Production\nProportion",
-      na.value = "grey60",
-      labels = scales::percent_format(accuracy = 1),
-      guide = guide_colorbar(
-        barwidth = 1, barheight = 15,
-        frame.colour = "grey40", ticks.colour = "grey40",
-        show.limits = TRUE
-      )
+  # Create combined faceted boxplot showing all quartiles with FIXED SCALE
+  combined_boxplot <- ggplot(quartile_boxplot_data, aes(x = mgmt_river, y = within_quartile_pct)) +
+    geom_boxplot(
+      fill = "grey90", 
+      alpha = 0.7, 
+      outlier.alpha = 0.8,
+      outlier.size = 2,
+      outlier.shape = 16,
+      linewidth = 0.5
     ) +
-    scale_linewidth_continuous(
-      range = c(0.3, 3.0), 
-      name = "Stream\nOrder"
+    facet_wrap(~quartile_clean, ncol = 2) +  # Fixed layout, removed scales = "free_y"
+    # FIXED SCALE: 0-20% for all quartiles in faceted plot
+    scale_y_continuous(
+      labels = function(x) paste0(round(x, 1), "%"),
+      limits = c(0, 20),  # FIXED RANGE: 0-20%
+      breaks = seq(0, 20, by = 5),  # Breaks at 0, 5, 10, 15, 20
+      expand = expansion(mult = c(0, 0.02))
     ) +
-    coord_sf(datum = NA) +
+    coord_flip() +
     labs(
-      title = paste0("Average ", quartile_label, ": Management Rivers - Kusko Watershed"),
-      subtitle = paste("Average across all years (", year_range, ")", sep = "")
+      title = "Management Unit Production Variability Across All Quartiles",
+      subtitle = paste("Within-quartile production for each management unit (", year_range, ") | Watershed order: upstream → downstream", sep = ""),
+      x = "Management Unit (Watershed Position)",
+      y = "Production (%) - Fixed 0-20% Scale",
+      caption = "Boxes show median, quartiles, and whiskers; dots show outliers | Fixed scale allows comparison across all quartiles"
     ) +
-    theme_void() +
+    theme_minimal(base_size = 11) +
     theme(
-      plot.title = element_text(size = 16, face = "bold", hjust = 0.5, color = "grey30"),
-      plot.subtitle = element_text(size = 12, hjust = 0.5, color = "grey50"),
-      legend.position = "right",
-      legend.title = element_text(size = 11, face = "bold", color = "grey30"),
-      legend.text = element_text(color = "grey30"),
-      panel.background = element_rect(fill = "white", color = NA),
+      plot.title = element_text(face = "bold", size = 16, hjust = 0.5, color = "grey30"),
+      plot.subtitle = element_text(size = 12, hjust = 0.5, color = "gray40"),
+      plot.caption = element_text(size = 10, hjust = 0.5, face = "italic", color = "gray50"),
+      panel.grid.minor = element_blank(),
+      panel.grid.major.y = element_blank(),
+      panel.grid.major.x = element_line(color = "gray90", linewidth = 0.3),
+      axis.title = element_text(face = "bold", size = 12),
+      axis.text.y = element_text(size = 9),
+      axis.text.x = element_text(size = 9),
+      strip.text = element_text(face = "bold", size = 12),
       plot.background = element_rect(fill = "white", color = NA),
-      plot.margin = margin(10, 10, 10, 10, "mm")
+      panel.background = element_rect(fill = "white", color = NA),
+      plot.margin = margin(15, 15, 15, 15)
     )
   
-  print(main_plot)
+  ggsave(file.path(OUTPUT_DIR, "management_unit_all_quartiles_boxplot_CORRECTED.png"), 
+         combined_boxplot, width = 14, height = 12, dpi = 300, bg = "white")
   
-  dev.off()
+  ################################################################################
+  # PART 3: SAVE SUMMARY STATISTICS (unchanged)
+  ################################################################################
   
-  message(paste("Created average map:", basename(output_filepath)))
+  # Calculate summary statistics for quartiles with watershed ordering
+  quartile_summary_stats <- quartile_boxplot_data %>%
+    group_by(mgmt_river, quartile_clean) %>%
+    summarise(
+      mean_quartile_production = mean(within_quartile_pct, na.rm = TRUE),
+      median_quartile_production = median(within_quartile_pct, na.rm = TRUE),
+      sd_quartile_production = sd(within_quartile_pct, na.rm = TRUE),
+      min_quartile_production = min(within_quartile_pct, na.rm = TRUE),
+      max_quartile_production = max(within_quartile_pct, na.rm = TRUE),
+      cv_quartile_production = sd_quartile_production / mean_quartile_production,
+      n_years = n(),
+      .groups = "drop"
+    ) %>%
+    arrange(mgmt_river, quartile_clean)
+  
+  write_csv(quartile_summary_stats, 
+            file.path(OUTPUT_DIR, "management_unit_quartile_summary_statistics_CORRECTED.csv"))
+  
+  message(paste("Average quartile analysis completed with fixed 0-20% scale boxplots. Saved to:", OUTPUT_DIR))
+  message("Created:")
+  message("  MAPS:")
+  message(paste("    - Average_Q1_Management_", year_range, "_CORRECTED.png", sep = ""))
+  message(paste("    - Average_Q2_Management_", year_range, "_CORRECTED.png", sep = ""))
+  message(paste("    - Average_Q3_Management_", year_range, "_CORRECTED.png", sep = ""))
+  message(paste("    - Average_Q4_Management_", year_range, "_CORRECTED.png", sep = ""))
+  message("  BOXPLOTS (0-20% SCALE):")
+  message("    - management_unit_Q1_boxplot_CORRECTED.png")
+  message("    - management_unit_Q2_boxplot_CORRECTED.png")
+  message("    - management_unit_Q3_boxplot_CORRECTED.png")
+  message("    - management_unit_Q4_boxplot_CORRECTED.png")
+  message("    - management_unit_all_quartiles_boxplot_CORRECTED.png")
+  message("  DATA:")
+  message(paste("    - average_production_by_quartile_", year_range, "_CORRECTED.csv", sep = ""))
+  message("    - management_unit_quartile_summary_statistics_CORRECTED.csv")
+  message("\n✓ ALL BOXPLOTS NOW USE FIXED 0-20% SCALE FOR DIRECT COMPARISON")
 }
 
 ################################################################################
-# ANALYSIS 5: CUMULATIVE DISTRIBUTION ANALYSIS
+# ANALYSIS 4: CUMULATIVE DISTRIBUTION ANALYSIS
 # PURPOSE: Shows timing progression by management unit with 3-day intervals
 ################################################################################
 
@@ -776,37 +908,38 @@ export_closure_analysis_csv <- function(closure_results, closure_start, closure_
 ################################################################################
 
 # Set analysis parameters
-years <- c(2017, 2018, 2019, 2020, 2021)
+years <- c(2017, 2018, 2019, 2020, 2021, 2022)
 watersheds <- c("Kusko")
 
-message("=== Running Complete Analysis Suite ===")
+message("=== Running Core Salmon Run Timing Analysis Suite (CORRECTED WATERSHED ORDERING) ===")
 
 # 1. DOY Quartiles (Management Rivers only) + CSV export
 message("1. Starting DOY Quartile Analysis (Management Rivers only) with CSV export...")
 run_doy_analysis(years, watersheds, export_csv = TRUE)
 
-# # 2. DOY Total (tributary maps only - no HUC maps)
-# message("2. Starting DOY Total Analysis (Tributary maps only)...")
-# run_doy_total_analysis(years, watersheds, export_csv = FALSE)
-
-# 3. Front-end Closure Boxplot Analysis
-message("3. Starting Front-end Closure Boxplot Analysis...")
+# 2. Front-end Closure Boxplot Analysis (CORRECTED ORDERING)
+message("2. Starting Front-end Closure Boxplot Analysis (CORRECTED ORDERING)...")
 run_closure_boxplot_analysis(years, "Kusko")
 
-# 4. Average Quartile Maps
-message("4. Starting Average Quartile Maps Analysis...")
+# 3. Average Quartile Maps (CORRECTED ORDERING)
+message("3. Starting Average Quartile Maps Analysis (CORRECTED ORDERING)...")
 run_average_quartile_analysis(years, "Kusko")
 
-# 5. Cumulative Distribution Analysis
-message("5. Starting Cumulative Distribution Analysis...")
+# 4. Cumulative Distribution Analysis
+message("4. Starting Cumulative Distribution Analysis...")
 run_cumulative_distribution_analysis(years, "Kusko", interval_days = 3)
 
-message("=== Complete Analysis Suite Finished ===")
-message("All analyses have been completed!")
+message("=== Core Analysis Suite Finished (CORRECTED WATERSHED ORDERING) ===")
+message("All core analyses have been completed with corrected watershed ordering!")
 message("Check the following directories for outputs:")
 message("  - Basin Maps/DOY_Quartile/")
-message("  - Basin Maps/DOY_Total/")
 message("  - Figures/Front_End_Closure_Boxplots/")
 message("  - Figures/Average_Management_Production/")
 message("  - Analysis_Results/Cumulative_Distribution/")
 message("  - Analysis_Results/Management_River_Analysis/")
+message("\nKey changes made:")
+message("✓ Removed all DFA-specific functions and analyses")
+message("✓ Updated watershed ordering functions with correct upstream → downstream sequence")
+message("✓ Applied corrected ordering to all boxplots and maps")
+message("✓ Streamlined to core spatial timing analyses only")
+message("✓ Files saved with '_CORRECTED' suffix to distinguish from old versions")
