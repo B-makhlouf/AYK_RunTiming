@@ -25,10 +25,10 @@ library(readr)
 library(png)
 
 # Source required files for spatial analysis only
-source(here("code/utils/spatial_utils.R"))
-source(here("code/utils/visualization.R"))
-source(here("code/assignment.R"))
-source(here("code/doy_analysis.R"))
+source(here("Code/utils/spatial_utils.R"))
+source(here("Code/utils/visualization.R"))
+source(here("Code/assignment.R"))
+source(here("Code/doy_analysis.R"))
 
 ################################################################################
 # CORRECTED WATERSHED ORDERING FUNCTIONS
@@ -342,9 +342,10 @@ run_closure_boxplot_analysis <- function(years, watershed = "Kusko") {
 # PURPOSE: Shows average production across all years by quartile
 ################################################################################
 
+#' Run Average Quartile Maps Analysis with Boxplots
 run_average_quartile_analysis <- function(years, watershed = "Kusko") {
   
-  message("=== Starting Average Quartile Maps Analysis with Boxplots (FIXED 0-20% SCALE) ===")
+  message("=== Starting Average Quartile Maps Analysis with Boxplots ===")
   
   # Set file paths
   DATA_PATH <- here("Analysis_Results/Management_River_Analysis/management_river_analysis_tidy.csv")
@@ -386,7 +387,7 @@ run_average_quartile_analysis <- function(years, watershed = "Kusko") {
   basin <- st_read(BASIN_PATH, quiet = TRUE)
   
   ################################################################################
-  # PART 1: CREATE AVERAGE MAPS (unchanged)
+  # PART 1: CREATE AVERAGE MAPS
   ################################################################################
   
   # Calculate average production by quartile
@@ -424,10 +425,10 @@ run_average_quartile_analysis <- function(years, watershed = "Kusko") {
             file.path(OUTPUT_DIR, paste0("average_production_by_quartile_", year_range, "_CORRECTED.csv")))
   
   ################################################################################
-  # PART 2: CREATE VARIABILITY BOXPLOTS WITH FIXED 0-20% SCALE
+  # PART 2: CREATE VARIABILITY BOXPLOTS
   ################################################################################
   
-  message("Creating variability boxplots with fixed 0-20% scale...")
+  message("Creating variability boxplots...")
   
   # Prepare data for boxplots - show variability in EACH QUARTILE across years
   quartile_boxplot_data <- mgmt_data %>%
@@ -438,15 +439,15 @@ run_average_quartile_analysis <- function(years, watershed = "Kusko") {
   # Apply watershed ordering (reverse for coord_flip so upstream appears at top)
   quartile_boxplot_data <- apply_watershed_order(quartile_boxplot_data, "mgmt_river", reverse_for_plots = TRUE)
   
-  # Create individual boxplot for each quartile with FIXED 0-20% SCALE
+  # Create individual boxplot for each quartile
   for (q in c("Q1", "Q2", "Q3", "Q4")) {
-    message(paste("Creating boxplot for", q, "with fixed 0-20% scale"))
+    message(paste("Creating boxplot for", q))
     
     # Filter data for this quartile
     q_data <- quartile_boxplot_data %>%
       filter(quartile_clean == q)
     
-    # Create boxplot for this quartile with FIXED SCALE
+    # Create boxplot for this quartile
     q_boxplot <- ggplot(q_data, aes(x = mgmt_river, y = within_quartile_pct)) +
       geom_boxplot(
         fill = "grey90", 
@@ -456,12 +457,10 @@ run_average_quartile_analysis <- function(years, watershed = "Kusko") {
         outlier.shape = 16,
         linewidth = 0.6
       ) +
-      # FIXED SCALE: 0-20% for all quartiles
       scale_y_continuous(
         labels = function(x) paste0(round(x, 1), "%"),
-        limits = c(0, 20),  # FIXED RANGE: 0-20%
-        breaks = seq(0, 20, by = 5),  # Breaks at 0, 5, 10, 15, 20
-        expand = expansion(mult = c(0, 0.02))  # Small expansion at top only
+        limits = c(0, max(quartile_boxplot_data$within_quartile_pct, na.rm = TRUE) * 1.05),
+        expand = expansion(mult = c(0.02, 0.05))
       ) +
       coord_flip() +
       labs(
@@ -488,12 +487,12 @@ run_average_quartile_analysis <- function(years, watershed = "Kusko") {
         panel.border = element_rect(color = "gray80", fill = NA, linewidth = 0.5)
       )
     
-    # Save individual quartile boxplot with fixed scale
+    # Save individual quartile boxplot
     ggsave(file.path(OUTPUT_DIR, paste0("management_unit_", q, "_boxplot_CORRECTED.png")), 
            q_boxplot, width = 12, height = 10, dpi = 300, bg = "white")
   }
   
-  # Create combined faceted boxplot showing all quartiles with FIXED SCALE
+  # Create combined faceted boxplot showing all quartiles
   combined_boxplot <- ggplot(quartile_boxplot_data, aes(x = mgmt_river, y = within_quartile_pct)) +
     geom_boxplot(
       fill = "grey90", 
@@ -503,21 +502,18 @@ run_average_quartile_analysis <- function(years, watershed = "Kusko") {
       outlier.shape = 16,
       linewidth = 0.5
     ) +
-    facet_wrap(~quartile_clean, ncol = 2) +  # Fixed layout, removed scales = "free_y"
-    # FIXED SCALE: 0-20% for all quartiles in faceted plot
+    facet_wrap(~quartile_clean, scales = "free_y", ncol = 2) +
     scale_y_continuous(
       labels = function(x) paste0(round(x, 1), "%"),
-      limits = c(0, 20),  # FIXED RANGE: 0-20%
-      breaks = seq(0, 20, by = 5),  # Breaks at 0, 5, 10, 15, 20
-      expand = expansion(mult = c(0, 0.02))
+      expand = expansion(mult = c(0.02, 0.05))
     ) +
     coord_flip() +
     labs(
       title = "Management Unit Production Variability Across All Quartiles",
       subtitle = paste("Within-quartile production for each management unit (", year_range, ") | Watershed order: upstream → downstream", sep = ""),
       x = "Management Unit (Watershed Position)",
-      y = "Production (%) - Fixed 0-20% Scale",
-      caption = "Boxes show median, quartiles, and whiskers; dots show outliers | Fixed scale allows comparison across all quartiles"
+      y = "Production (%)",
+      caption = "Boxes show median, quartiles, and whiskers; dots show outliers | Ordered by watershed position (upstream at top)"
     ) +
     theme_minimal(base_size = 11) +
     theme(
@@ -540,7 +536,7 @@ run_average_quartile_analysis <- function(years, watershed = "Kusko") {
          combined_boxplot, width = 14, height = 12, dpi = 300, bg = "white")
   
   ################################################################################
-  # PART 3: SAVE SUMMARY STATISTICS (unchanged)
+  # PART 3: SAVE SUMMARY STATISTICS
   ################################################################################
   
   # Calculate summary statistics for quartiles with watershed ordering
@@ -561,14 +557,14 @@ run_average_quartile_analysis <- function(years, watershed = "Kusko") {
   write_csv(quartile_summary_stats, 
             file.path(OUTPUT_DIR, "management_unit_quartile_summary_statistics_CORRECTED.csv"))
   
-  message(paste("Average quartile analysis completed with fixed 0-20% scale boxplots. Saved to:", OUTPUT_DIR))
+  message(paste("Average quartile analysis completed with boxplots. Saved to:", OUTPUT_DIR))
   message("Created:")
   message("  MAPS:")
   message(paste("    - Average_Q1_Management_", year_range, "_CORRECTED.png", sep = ""))
   message(paste("    - Average_Q2_Management_", year_range, "_CORRECTED.png", sep = ""))
   message(paste("    - Average_Q3_Management_", year_range, "_CORRECTED.png", sep = ""))
   message(paste("    - Average_Q4_Management_", year_range, "_CORRECTED.png", sep = ""))
-  message("  BOXPLOTS (0-20% SCALE):")
+  message("  BOXPLOTS:")
   message("    - management_unit_Q1_boxplot_CORRECTED.png")
   message("    - management_unit_Q2_boxplot_CORRECTED.png")
   message("    - management_unit_Q3_boxplot_CORRECTED.png")
@@ -577,7 +573,76 @@ run_average_quartile_analysis <- function(years, watershed = "Kusko") {
   message("  DATA:")
   message(paste("    - average_production_by_quartile_", year_range, "_CORRECTED.csv", sep = ""))
   message("    - management_unit_quartile_summary_statistics_CORRECTED.csv")
-  message("\n✓ ALL BOXPLOTS NOW USE FIXED 0-20% SCALE FOR DIRECT COMPARISON")
+}
+
+#' Create management map identical to original DOY_Quartile/Management style
+create_average_mgmt_map <- function(quartile_data, quartile_label, output_filepath, year_range, edges, basin) {
+  
+  # Create the PNG with dimensions for single map (no bar plot)
+  png(file = output_filepath, width = 10, height = 8, units = "in", res = 300, bg = "white")
+  
+  # Join with spatial data and set up linewidths like DFA maps
+  edges_with_data <- edges %>%
+    left_join(quartile_data, by = "mgmt_river") %>%
+    filter(!is.na(mgmt_river) & mgmt_river != "") %>%
+    mutate(
+      # Set production proportion (handle NA values)
+      production_proportion = ifelse(is.na(production_proportion), 0, production_proportion),
+      # Set stream order and linewidth exactly like DFA maps
+      stream_order = ifelse(is.na(Str_Order), 3, Str_Order),
+      line_width = pmax(0.3, pmin(3.0, 0.3 + (stream_order - min(stream_order, na.rm = TRUE)) * 
+                                    (3.0 - 0.3) / (max(stream_order, na.rm = TRUE) - min(stream_order, na.rm = TRUE))))
+    )
+  
+  # Ensure consistent CRS
+  if (st_crs(basin) != st_crs(edges_with_data)) {
+    basin <- st_transform(basin, st_crs(edges_with_data))
+  }
+  
+  # Main map plot - single map without bar chart
+  main_plot <- ggplot() +
+    geom_sf(data = basin, fill = "gray95", color = "gray70", 
+            linewidth = 0.5, alpha = 0.3) +
+    geom_sf(data = edges_with_data, 
+            aes(color = production_proportion, linewidth = stream_order), 
+            alpha = 0.8) +
+    scale_color_gradientn(
+      colors = brewer.pal(9, "YlOrRd"),
+      name = "Production\nProportion",
+      na.value = "grey60",
+      labels = scales::percent_format(accuracy = 1),
+      guide = guide_colorbar(
+        barwidth = 1, barheight = 15,
+        frame.colour = "grey40", ticks.colour = "grey40",
+        show.limits = TRUE
+      )
+    ) +
+    scale_linewidth_continuous(
+      range = c(0.3, 3.0), 
+      name = "Stream\nOrder"
+    ) +
+    coord_sf(datum = NA) +
+    labs(
+      title = paste0("Average ", quartile_label, ": Management Rivers - Kusko Watershed"),
+      subtitle = paste("Average across all years (", year_range, ")", sep = "")
+    ) +
+    theme_void() +
+    theme(
+      plot.title = element_text(size = 16, face = "bold", hjust = 0.5, color = "grey30"),
+      plot.subtitle = element_text(size = 12, hjust = 0.5, color = "grey50"),
+      legend.position = "right",
+      legend.title = element_text(size = 11, face = "bold", color = "grey30"),
+      legend.text = element_text(color = "grey30"),
+      panel.background = element_rect(fill = "white", color = NA),
+      plot.background = element_rect(fill = "white", color = NA),
+      plot.margin = margin(10, 10, 10, 10, "mm")
+    )
+  
+  print(main_plot)
+  
+  dev.off()
+  
+  message(paste("Created average map:", basename(output_filepath)))
 }
 
 ################################################################################
