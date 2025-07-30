@@ -85,6 +85,498 @@ create_cpue_histogram <- function(natal_data, year, watershed) {
     )
 }
 
+#' Create enhanced cumulative distribution plots with FIXED management unit names
+create_enhanced_cumulative_plots <- function(cumulative_data, summary_stats, 
+                                             watershed, interval_days) {
+  
+  cat("Creating enhanced visualization plots with FIXED management unit names...\n")
+  
+  # Create output directory
+  plot_dir <- here("Analysis_Results/Cumulative_Distribution/Plots")
+  dir.create(plot_dir, showWarnings = FALSE, recursive = TRUE)
+  
+  # CORRECTED MANAGEMENT UNIT ORDER - Based on actual data from your scripts
+  # These are the ACTUAL names found in your data
+  desired_order <- c(
+    "N. Fork Kusko",
+    "E. Fork Kuskokwim",        # No "River" - this appears to be the actual name
+    "S. Fork Kusko", 
+    "Upper Kusko Main",
+    "Big River",
+    "Takotna and Nixon Fork",
+    "Tatlawiksuk",
+    "Swift",
+    "Stony", 
+    "Holitna and Hoholitna",    # This appears to be the actual combined name
+    "Middle Kusko Main",
+    "George",
+    "Oskakawlik", 
+    "Holokuk",
+    "Aniak",
+    "Tuluksak",
+    "Kisaralik",
+    "Kwethluk",
+    "Johnson",
+    "Lower Kusko"
+  )
+  
+  # Get actual management units from data
+  actual_mgmt_rivers <- sort(unique(cumulative_data$mgmt_river))
+  cat(paste("ACTUAL management units in data:", length(actual_mgmt_rivers), "\n"))
+  for (i in 1:length(actual_mgmt_rivers)) {
+    cat(paste("  ", i, ". '", actual_mgmt_rivers[i], "'\n", sep = ""))
+  }
+  
+  # Use ONLY the management units that actually exist in the data
+  # Don't try to impose our desired order if the names don't match
+  mgmt_rivers_for_plotting <- actual_mgmt_rivers
+  
+  # Try to match as many as possible from desired order, but include all actual units
+  matched_units <- intersect(desired_order, actual_mgmt_rivers)
+  unmatched_units <- setdiff(actual_mgmt_rivers, desired_order)
+  
+  cat(paste("MATCHED units from desired order:", length(matched_units), "\n"))
+  cat(paste("UNMATCHED units (will be added at end):", length(unmatched_units), "\n"))
+  for (unit in unmatched_units) {
+    cat(paste("  UNMATCHED: '", unit, "'\n", sep = ""))
+  }
+  
+  # Create final ordering: matched units in desired order + unmatched units at end
+  final_order <- c(matched_units, unmatched_units)
+  
+  cat("\nFINAL ORDER FOR PLOTTING:\n")
+  for (i in 1:length(final_order)) {
+    cat(paste("  ", i, ". '", final_order[i], "'\n", sep = ""))
+  }
+  
+  # Create red → orange → blue gradient function
+  create_watershed_colors <- function(mgmt_rivers_ordered) {
+    n_watersheds <- length(mgmt_rivers_ordered)
+    
+    # Create gradient from red → orange → blue
+    color_gradient <- colorRampPalette(c(
+      "#8B0000", "#CC0000", "#FF0000", "#FF4500", "#FF8C00", "#FFA500", "#FFB347",
+      "#87CEEB", "#4682B4", "#1E90FF", "#0000FF", "#000080"
+    ))(n_watersheds)
+    
+    # Create named vector
+    names(color_gradient) <- mgmt_rivers_ordered
+    return(color_gradient)
+  }
+  
+  # Generate colors for actual management units
+  watershed_colors <- create_watershed_colors(final_order)
+  
+  # Create ordered factor for proper legend ordering
+  cumulative_data$mgmt_river <- factor(cumulative_data$mgmt_river, levels = final_order)
+  
+  cat(paste("Applied colors to", length(watershed_colors), "management units\n"))
+  
+  #--------------------------------------------------------------------------#
+  # CREATE INDIVIDUAL PLOTS FOR EACH YEAR
+  #--------------------------------------------------------------------------#
+  
+  individual_plots <- list()
+  years <- sort(unique(cumulative_data$year))
+  
+  for (year in years) {
+    year_data <- cumulative_data %>% filter(year == !!year)
+    
+    # Load natal data for CPUE histogram
+    natal_data <- load_natal_data(year, watershed)
+    
+    # Create CPUE histogram for this year
+    cpue_histogram <- create_cpue_histogram(natal_data, year, watershed)
+    
+    # Get ALL unique DOY values for this year
+    all_doys_this_year <- sort(unique(year_data$doy))
+    
+    # Create enhanced plot with NO POINTS, clean lines only
+    p_year <- ggplot(year_data, aes(x = doy, y = cumulative_percent_of_unit, color = mgmt_river)) +
+      # Add reference lines for key timing milestones
+      geom_hline(yintercept = c(25, 50, 75), color = "gray70", linetype = "dashed", alpha = 0.7) +
+      geom_hline(yintercept = c(10, 90), color = "gray80", linetype = "dotted", alpha = 0.5) +
+      
+      # Main data - LINES ONLY (NO POINTS)
+      geom_line(linewidth = 2.5, alpha = 0.9) +
+      
+      # Color and scales
+      scale_color_manual(values = watershed_colors, 
+                         breaks = final_order,
+                         guide = guide_legend(override.aes = list(linewidth = 3))) +
+      scale_y_continuous(
+        labels = function(x) paste0(round(x, 1), "%"),
+        limits = c(0, 100),
+        breaks = c(0, 10, 25, 50, 75, 90, 100),
+        minor_breaks = seq(0, 100, 5)
+      ) +
+      # Show all DOY values in the data
+      scale_x_continuous(
+        breaks = all_doys_this_year,
+        labels = function(x) {
+          date_str <- format(as.Date(x - 1, origin = paste0(year, "-01-01")), "%b %d")
+          paste0("DOY ", x, "\n", date_str)
+        },
+        limits = c(min(year_data$doy), max(year_data$doy)),
+        expand = expansion(mult = c(0.02, 0.02))
+      ) +
+      
+      # Enhanced labels and theme
+      labs(
+        title = paste("FIXED: Salmon Run Timing Progress -", year),
+        subtitle = paste(watershed, "Watershed | FIXED management unit names | ALL", length(all_doys_this_year), "dates shown"),
+        x = paste("Day of Year (Date) - All", interval_days, "Day Intervals Shown"),
+        y = "Cumulative Percent of Management Unit's Total Production",
+        color = "Management Unit\n(Watershed Position)",
+        caption = paste("FIXED: Corrected management unit names | No points, clean lines |", length(all_doys_this_year), "data points | Red=upstream, Blue=downstream")
+      ) +
+      theme_minimal(base_size = 13) +
+      theme(
+        plot.title = element_text(face = "bold", size = 18, hjust = 0.5, color = "gray20"),
+        plot.subtitle = element_text(size = 13, hjust = 0.5, color = "gray40"),
+        plot.caption = element_text(size = 10, hjust = 0.5, color = "gray50"),
+        legend.position = "right",
+        legend.title = element_text(face = "bold", size = 12),
+        legend.text = element_text(size = 11),
+        axis.line = element_line(color = "gray20", linewidth = 1.2),
+        axis.text = element_text(size = 10, color = "gray20"),
+        axis.text.x = element_text(angle = 90, hjust = 1, vjust = 0.5, size = 7, color = "gray20"),
+        axis.title = element_text(face = "bold", size = 12, color = "gray20"),
+        axis.ticks = element_line(color = "gray20", linewidth = 0.8),
+        panel.grid.minor = element_line(color = "gray95", linewidth = 0.3),
+        panel.grid.major.y = element_line(color = "gray90", linewidth = 0.5),
+        panel.grid.major.x = element_line(color = "gray90", linewidth = 0.5),
+        panel.border = element_rect(color = "gray20", fill = NA, linewidth = 1.0),
+        plot.background = element_rect(fill = "white", color = NA),
+        panel.background = element_rect(fill = "white", color = NA)
+      )
+    
+    # Save enhanced combined plot
+    combined_filename <- paste0("FIXED_run_timing_progress_", year, "_", watershed, "_corrected_names.png")
+    
+    png(file.path(plot_dir, combined_filename), width = 18, height = 12, units = "in", res = 300, bg = "white")
+    grid.arrange(p_year, cpue_histogram, nrow = 2, heights = c(3, 1))
+    dev.off()
+    
+    individual_plots[[as.character(year)]] <- p_year
+    cat(paste("✓ Created FIXED timing plot for", year, "with corrected names | File:", combined_filename, "\n"))
+  }
+  
+  #--------------------------------------------------------------------------#
+  # CREATE OVERVIEW FACETED PLOT - ALL YEARS TOGETHER
+  #--------------------------------------------------------------------------#
+  
+  # Order data for consistent legend ordering
+  cumulative_data$mgmt_river <- factor(cumulative_data$mgmt_river, levels = final_order)
+  
+  # Use all DOY values present in the data for the overview plot
+  all_doys_in_overview <- sort(unique(cumulative_data$doy))
+  doy_range_overview <- range(cumulative_data$doy)
+  
+  cat(paste("Overview plot: showing", length(all_doys_in_overview), "unique dates across all years\n"))
+  
+  # Paper-optimized faceted plot with enhanced readability
+  p1_faceted <- ggplot(cumulative_data, aes(x = doy, y = cumulative_percent_of_unit, color = mgmt_river)) +
+    geom_line(linewidth = 2.0, alpha = 0.9) +  # Thicker lines for paper
+    facet_wrap(~year, ncol = 1, scales = "free_x") +
+    scale_color_manual(values = watershed_colors,
+                       breaks = final_order,
+                       guide = guide_legend(override.aes = list(linewidth = 3), # Thicker legend lines
+                                            ncol = 1,
+                                            keywidth = 1.5,
+                                            keyheight = 1.0)) +
+    scale_y_continuous(
+      labels = function(x) paste0(round(x, 1), "%"),
+      limits = c(0, 100),
+      breaks = seq(0, 100, 25)
+    ) +
+    scale_x_continuous(
+      limits = doy_range_overview,
+      breaks = seq(from = min(all_doys_in_overview), to = max(all_doys_in_overview), by = 9),
+      labels = function(x) {
+        date_obj <- as.Date(x - 1, origin = "2024-01-01")
+        format(date_obj, "%b %d")
+      },
+      expand = expansion(mult = c(0.01, 0.01))
+    ) +
+    labs(
+      title = paste("Cumulative Distribution of returning Chinook stocks over time"),
+      x = "Date",
+      y = "Cumulative Percent of Unit's Total Production",
+      color = "Management Unit"
+    ) +
+    theme_minimal(base_size = 14) +  # Larger base font for paper
+    theme(
+      plot.title = element_text(face = "bold", size = 18, hjust = 0.5),
+      plot.subtitle = element_text(size = 14, hjust = 0.5),
+      strip.text = element_text(face = "bold", size = 14),
+      
+      # Enhanced legend for paper
+      legend.position = "right",
+      legend.title = element_text(face = "bold", size = 13),
+      legend.text = element_text(size = 11),
+      legend.margin = margin(l = 20),
+      legend.box.spacing = unit(0.5, "cm"),
+      
+      # Enhanced axis styling for paper readability
+      axis.line = element_line(color = "gray20", linewidth = 1.0),
+      axis.text = element_text(color = "gray20", size = 11),
+      axis.text.x = element_text(angle = 45, hjust = 1, size = 10, color = "gray20"),
+      axis.title = element_text(face = "bold", color = "gray20", size = 13),
+      axis.title.x = element_text(margin = margin(t = 15)),
+      axis.title.y = element_text(margin = margin(r = 15)),
+      
+      # Panel optimizations
+      panel.grid.minor = element_blank(),
+      panel.grid.major.y = element_line(color = "gray90", linewidth = 0.4),
+      panel.grid.major.x = element_line(color = "gray90", linewidth = 0.4),
+      panel.spacing = unit(1.5, "lines"),
+      
+      # Generous margins for paper
+      plot.margin = margin(15, 15, 15, 15, "mm")
+    )
+  
+  # Save with paper-optimized dimensions
+  ggsave(file.path(plot_dir, paste0("FIXED_cumulative_overview_", watershed, "_corrected_names_PAPER.png")), 
+         p1_faceted, 
+         width = 16, height = 20, 
+         dpi = 300, bg = "white")
+  
+  cat("✓ Created FIXED overview faceted plot with corrected names\n")
+  
+  cat("FIXED plots created with corrected management unit names!\n")
+  
+  return(list(
+    individual_year_plots = individual_plots,
+    overview_faceted = p1_faceted,
+    mgmt_units_used = final_order,
+    colors_used = watershed_colors
+  ))
+}
+
+#' Create horizontal range plot showing min-max with mean marked
+create_run_duration_range_plot <- function(run_duration_data, watershed_colors, mgmt_rivers_ordered, 
+                                           watershed, interval_days) {
+  
+  cat("Creating horizontal range plot with mean markers...\n")
+  
+  # Create output directory
+  plot_dir <- here("Analysis_Results/Cumulative_Distribution/Plots")
+  dir.create(plot_dir, showWarnings = FALSE, recursive = TRUE)
+  
+  # Clean data: only keep exactly the management units that are in mgmt_rivers_ordered
+  clean_data <- run_duration_data %>%
+    filter(!is.na(mgmt_river), !is.na(days_to_50_percent)) %>%
+    filter(mgmt_river %in% mgmt_rivers_ordered)
+  
+  cat(paste("Data filtering:\n"))
+  cat(paste("  Original run duration rows:", nrow(run_duration_data), "\n"))
+  cat(paste("  After cleaning:", nrow(clean_data), "\n"))
+  cat(paste("  Management units:", length(unique(clean_data$mgmt_river)), "\n"))
+  
+  if (nrow(clean_data) == 0) {
+    cat("❌ No clean data available for range plot\n")
+    return(list(range_plot = NULL, summary_stats = NULL, filename = NULL))
+  }
+  
+  # Ensure clean_data has the same factor levels as the cumulative plots
+  clean_data$mgmt_river <- factor(clean_data$mgmt_river, levels = mgmt_rivers_ordered)
+  
+  # Calculate summary statistics for the range plot
+  duration_stats <- clean_data %>%
+    group_by(mgmt_river) %>%
+    summarise(
+      n_years = n(),
+      mean_days = mean(days_to_50_percent, na.rm = TRUE),
+      min_days = min(days_to_50_percent, na.rm = TRUE),
+      max_days = max(days_to_50_percent, na.rm = TRUE),
+      range_days = max_days - min_days,
+      .groups = 'drop'
+    ) %>%
+    arrange(mean_days)
+  
+  # Ensure factor levels match for plotting
+  duration_stats$mgmt_river <- factor(duration_stats$mgmt_river, levels = mgmt_rivers_ordered)
+  
+  # Create the MODERN HORIZONTAL range plot
+  p_range <- ggplot(duration_stats, aes(y = mgmt_river)) +
+    # Range lines (min to max)
+    geom_segment(aes(x = min_days, xend = max_days, 
+                     color = mgmt_river), 
+                 linewidth = 6, alpha = 0.7) +
+    
+    # Mean markers (black marks)
+    geom_point(aes(x = mean_days), 
+               color = "black", 
+               size = 4, 
+               shape = "|",  # Vertical line shape
+               stroke = 2) +
+    
+    # Use the exact same colors as cumulative plots for the range lines
+    scale_color_manual(values = watershed_colors, 
+                       breaks = mgmt_rivers_ordered,
+                       guide = "none") +
+    
+    # Modern X-axis formatting
+    scale_x_continuous(
+      name = "Days to 50% return",
+      breaks = function(x) pretty(x, n = 6),
+      expand = expansion(mult = c(0.02, 0.02)),
+      labels = function(x) paste0(x, " days")
+    ) +
+    
+    # Clean Y-axis formatting
+    scale_y_discrete(
+      name = NULL,  # Remove y-axis title for cleaner look
+      limits = rev(mgmt_rivers_ordered)
+    ) +
+    
+    # Modern, minimal labels
+    labs(
+      title = "Days to 50% of return by stock"
+    ) +
+    
+    # Modern minimal theme
+    theme_void() +
+    theme(
+      # Modern typography
+      plot.title = element_text(
+        face = "bold", 
+        size = 20, 
+        hjust = 0, 
+        color = "gray15",
+        margin = margin(b = 5)
+      ),
+      plot.subtitle = element_text(
+        size = 13, 
+        hjust = 0, 
+        color = "gray50",
+        margin = margin(b = 20)
+      ),
+      plot.caption = element_text(
+        size = 11, 
+        hjust = 0, 
+        color = "gray60",
+        margin = margin(t = 15)
+      ),
+      
+      # Clean axis styling
+      axis.text.y = element_text(
+        size = 11, 
+        color = "gray30",
+        hjust = 1,
+        margin = margin(r = 10)
+      ),
+      axis.text.x = element_text(
+        size = 10, 
+        color = "gray30",
+        margin = margin(t = 8)
+      ),
+      axis.title.x = element_text(
+        size = 12, 
+        color = "gray20",
+        face = "bold",
+        margin = margin(t = 15)
+      ),
+      
+      # Minimal grid
+      panel.grid.major.x = element_line(
+        color = "gray92", 
+        linewidth = 0.4,
+        linetype = "solid"
+      ),
+      panel.grid.minor.x = element_line(
+        color = "gray96", 
+        linewidth = 0.2
+      ),
+      panel.grid.major.y = element_blank(),
+      panel.grid.minor.y = element_blank(),
+      
+      # Modern spacing
+      plot.margin = margin(20, 25, 20, 20, "mm"),
+      
+      # Clean background
+      plot.background = element_rect(fill = "white", color = NA),
+      panel.background = element_rect(fill = "white", color = NA),
+      
+      # Remove all axis lines and ticks for ultra-clean look
+      axis.line = element_blank(),
+      axis.ticks = element_blank()
+    )
+  
+  # Save the modern range plot
+  range_filename <- paste0("FIXED_run_duration_range_", watershed, "_", interval_days, "day_intervals.png")
+  ggsave(file.path(plot_dir, range_filename), p_range, 
+         width = 12, height = 8, dpi = 300, bg = "white")
+  
+  cat(paste("✅ Created FIXED modern horizontal range plot:", range_filename, "\n"))
+  cat(paste("   Showing min-max range with mean for", length(unique(clean_data$mgmt_river)), "management units\n"))
+  cat(paste("   Colors match cumulative distribution plots EXACTLY\n"))
+  
+  # Print summary statistics
+  cat("\nRun Duration Range Statistics:\n")
+  print(duration_stats, n = Inf)
+  
+  return(list(
+    range_plot = p_range,
+    summary_stats = duration_stats,
+    filename = range_filename
+  ))
+}
+
+#' Export enhanced cumulative data
+export_enhanced_cumulative_data <- function(cumulative_data, summary_stats, run_duration_data, 
+                                            watershed, interval_days) {
+  
+  cat("Exporting data with corrected management unit names...\n")
+  
+  # Create output directory
+  csv_dir <- here("Analysis_Results/Cumulative_Distribution/CSV")
+  dir.create(csv_dir, showWarnings = FALSE, recursive = TRUE)
+  
+  # Export full cumulative data
+  cumulative_clean <- cumulative_data %>%
+    select(year, doy, interval_number, mgmt_river, cumulative_production, 
+           cumulative_percent_of_unit, overall_percent, fish_count_cumulative) %>%
+    arrange(year, mgmt_river, doy)
+  
+  cumulative_filepath <- file.path(csv_dir, paste0("FIXED_cumulative_distribution_data_", 
+                                                   watershed, "_", interval_days, "day_intervals.csv"))
+  write.csv(cumulative_clean, cumulative_filepath, row.names = FALSE)
+  cat(paste("Exported FIXED cumulative data to:", basename(cumulative_filepath), "\n"))
+  
+  # Export run duration metrics
+  run_duration_clean <- run_duration_data %>%
+    select(year, mgmt_river, run_start_doy, doy_above_50_percent, days_to_above_50_percent, 
+           actual_percent_at_doy, total_production, final_overall_percent) %>%
+    arrange(year, mgmt_river)
+  
+  run_duration_filepath <- file.path(csv_dir, paste0("FIXED_run_duration_metrics_", 
+                                                     watershed, "_", interval_days, "day_intervals.csv"))
+  write.csv(run_duration_clean, run_duration_filepath, row.names = FALSE)
+  cat(paste("Exported FIXED run duration metrics to:", basename(run_duration_filepath), "\n"))
+  
+  # Export summary statistics
+  summary_filepath <- file.path(csv_dir, paste0("FIXED_timing_summary_stats_", 
+                                                watershed, "_", interval_days, "day_intervals.csv"))
+  write.csv(summary_stats, summary_filepath, row.names = FALSE)
+  cat(paste("Exported FIXED summary statistics to:", basename(summary_filepath), "\n"))
+  
+  # Export wide format for easy plotting
+  cumulative_wide <- cumulative_data %>%
+    select(year, doy, mgmt_river, cumulative_percent_of_unit) %>%
+    pivot_wider(names_from = mgmt_river, values_from = cumulative_percent_of_unit, 
+                values_fill = 0, names_prefix = "mgmt_") %>%
+    arrange(year, doy)
+  
+  wide_filepath <- file.path(csv_dir, paste0("FIXED_cumulative_distribution_wide_", 
+                                             watershed, "_", interval_days, "day_intervals.csv"))
+  write.csv(cumulative_wide, wide_filepath, row.names = FALSE)
+  cat(paste("Exported FIXED wide format data to:", basename(wide_filepath), "\n"))
+  
+  cat("All FIXED CSV exports completed!\n")
+}
+
 #' Calculate cumulative distributions by management unit with 3-day intervals
 analyze_cumulative_distributions <- function(years = c(2017, 2018, 2019, 2020, 2021),
                                              watershed = "Kusko",
@@ -392,480 +884,6 @@ analyze_cumulative_distributions <- function(years = c(2017, 2018, 2019, 2020, 2
   ))
 }
 
-#' Create enhanced cumulative distribution plots with FIXED management unit names
-create_enhanced_cumulative_plots <- function(cumulative_data, summary_stats, 
-                                             watershed, interval_days) {
-  
-  cat("Creating enhanced visualization plots with FIXED management unit names...\n")
-  
-  # Create output directory
-  plot_dir <- here("Analysis_Results/Cumulative_Distribution/Plots")
-  dir.create(plot_dir, showWarnings = FALSE, recursive = TRUE)
-  
-  # CORRECTED MANAGEMENT UNIT ORDER - Based on actual data from your scripts
-  # These are the ACTUAL names found in your data
-  desired_order <- c(
-    "N. Fork Kusko",
-    "E. Fork Kuskokwim",        # No "River" - this appears to be the actual name
-    "S. Fork Kusko", 
-    "Upper Kusko Main",
-    "Big River",
-    "Takotna and Nixon Fork",
-    "Tatlawiksuk",
-    "Swift",
-    "Stony", 
-    "Holitna and Hoholitna",    # This appears to be the actual combined name
-    "Middle Kusko Main",
-    "George",
-    "Oskakawlik", 
-    "Holokuk",
-    "Aniak",
-    "Tuluksak",
-    "Kisaralik",
-    "Kwethluk",
-    "Johnson",
-    "Lower Kusko"
-  )
-  
-  # Get actual management units from data
-  actual_mgmt_rivers <- sort(unique(cumulative_data$mgmt_river))
-  cat(paste("ACTUAL management units in data:", length(actual_mgmt_rivers), "\n"))
-  for (i in 1:length(actual_mgmt_rivers)) {
-    cat(paste("  ", i, ". '", actual_mgmt_rivers[i], "'\n", sep = ""))
-  }
-  
-  # Use ONLY the management units that actually exist in the data
-  # Don't try to impose our desired order if the names don't match
-  mgmt_rivers_for_plotting <- actual_mgmt_rivers
-  
-  # Try to match as many as possible from desired order, but include all actual units
-  matched_units <- intersect(desired_order, actual_mgmt_rivers)
-  unmatched_units <- setdiff(actual_mgmt_rivers, desired_order)
-  
-  cat(paste("MATCHED units from desired order:", length(matched_units), "\n"))
-  cat(paste("UNMATCHED units (will be added at end):", length(unmatched_units), "\n"))
-  for (unit in unmatched_units) {
-    cat(paste("  UNMATCHED: '", unit, "'\n", sep = ""))
-  }
-  
-  # Create final ordering: matched units in desired order + unmatched units at end
-  final_order <- c(matched_units, unmatched_units)
-  
-  cat("\nFINAL ORDER FOR PLOTTING:\n")
-  for (i in 1:length(final_order)) {
-    cat(paste("  ", i, ". '", final_order[i], "'\n", sep = ""))
-  }
-  
-  # Create red → orange → blue gradient function
-  create_watershed_colors <- function(mgmt_rivers_ordered) {
-    n_watersheds <- length(mgmt_rivers_ordered)
-    
-    # Create gradient from red → orange → blue
-    color_gradient <- colorRampPalette(c(
-      "#8B0000", "#CC0000", "#FF0000", "#FF4500", "#FF8C00", "#FFA500", "#FFB347",
-      "#87CEEB", "#4682B4", "#1E90FF", "#0000FF", "#000080"
-    ))(n_watersheds)
-    
-    # Create named vector
-    names(color_gradient) <- mgmt_rivers_ordered
-    return(color_gradient)
-  }
-  
-  # Generate colors for actual management units
-  watershed_colors <- create_watershed_colors(final_order)
-  
-  # Create ordered factor for proper legend ordering
-  cumulative_data$mgmt_river <- factor(cumulative_data$mgmt_river, levels = final_order)
-  
-  cat(paste("Applied colors to", length(watershed_colors), "management units\n"))
-  
-  #--------------------------------------------------------------------------#
-  # CREATE INDIVIDUAL PLOTS FOR EACH YEAR
-  #--------------------------------------------------------------------------#
-  
-  individual_plots <- list()
-  years <- sort(unique(cumulative_data$year))
-  
-  for (year in years) {
-    year_data <- cumulative_data %>% filter(year == !!year)
-    
-    # Load natal data for CPUE histogram
-    natal_data <- load_natal_data(year, watershed)
-    
-    # Create CPUE histogram for this year
-    cpue_histogram <- create_cpue_histogram(natal_data, year, watershed)
-    
-    # Get ALL unique DOY values for this year
-    all_doys_this_year <- sort(unique(year_data$doy))
-    
-    # Create enhanced plot with NO POINTS, clean lines only
-    p_year <- ggplot(year_data, aes(x = doy, y = cumulative_percent_of_unit, color = mgmt_river)) +
-      # Add reference lines for key timing milestones
-      geom_hline(yintercept = c(25, 50, 75), color = "gray70", linetype = "dashed", alpha = 0.7) +
-      geom_hline(yintercept = c(10, 90), color = "gray80", linetype = "dotted", alpha = 0.5) +
-      
-      # Main data - LINES ONLY (NO POINTS)
-      geom_line(linewidth = 2.5, alpha = 0.9) +
-      
-      # Color and scales
-      scale_color_manual(values = watershed_colors, 
-                         breaks = final_order,
-                         guide = guide_legend(override.aes = list(linewidth = 3))) +
-      scale_y_continuous(
-        labels = function(x) paste0(round(x, 1), "%"),
-        limits = c(0, 100),
-        breaks = c(0, 10, 25, 50, 75, 90, 100),
-        minor_breaks = seq(0, 100, 5)
-      ) +
-      # Show all DOY values in the data
-      scale_x_continuous(
-        breaks = all_doys_this_year,
-        labels = function(x) {
-          date_str <- format(as.Date(x - 1, origin = paste0(year, "-01-01")), "%b %d")
-          paste0("DOY ", x, "\n", date_str)
-        },
-        limits = c(min(year_data$doy), max(year_data$doy)),
-        expand = expansion(mult = c(0.02, 0.02))
-      ) +
-      
-      # Enhanced labels and theme
-      labs(
-        title = paste("FIXED: Salmon Run Timing Progress -", year),
-        subtitle = paste(watershed, "Watershed | FIXED management unit names | ALL", length(all_doys_this_year), "dates shown"),
-        x = paste("Day of Year (Date) - All", interval_days, "Day Intervals Shown"),
-        y = "Cumulative Percent of Management Unit's Total Production",
-        color = "Management Unit\n(Watershed Position)",
-        caption = paste("FIXED: Corrected management unit names | No points, clean lines |", length(all_doys_this_year), "data points | Red=upstream, Blue=downstream")
-      ) +
-      theme_minimal(base_size = 13) +
-      theme(
-        plot.title = element_text(face = "bold", size = 18, hjust = 0.5, color = "gray20"),
-        plot.subtitle = element_text(size = 13, hjust = 0.5, color = "gray40"),
-        plot.caption = element_text(size = 10, hjust = 0.5, color = "gray50"),
-        legend.position = "right",
-        legend.title = element_text(face = "bold", size = 12),
-        legend.text = element_text(size = 11),
-        axis.line = element_line(color = "gray20", linewidth = 1.2),
-        axis.text = element_text(size = 10, color = "gray20"),
-        axis.text.x = element_text(angle = 90, hjust = 1, vjust = 0.5, size = 7, color = "gray20"),
-        axis.title = element_text(face = "bold", size = 12, color = "gray20"),
-        axis.ticks = element_line(color = "gray20", linewidth = 0.8),
-        panel.grid.minor = element_line(color = "gray95", linewidth = 0.3),
-        panel.grid.major.y = element_line(color = "gray90", linewidth = 0.5),
-        panel.grid.major.x = element_line(color = "gray90", linewidth = 0.5),
-        panel.border = element_rect(color = "gray20", fill = NA, linewidth = 1.0),
-        plot.background = element_rect(fill = "white", color = NA),
-        panel.background = element_rect(fill = "white", color = NA)
-      )
-    
-    # Save enhanced combined plot
-    combined_filename <- paste0("FIXED_run_timing_progress_", year, "_", watershed, "_corrected_names.png")
-    
-    png(file.path(plot_dir, combined_filename), width = 18, height = 12, units = "in", res = 300, bg = "white")
-    grid.arrange(p_year, cpue_histogram, nrow = 2, heights = c(3, 1))
-    dev.off()
-    
-    individual_plots[[as.character(year)]] <- p_year
-    cat(paste("✓ Created FIXED timing plot for", year, "with corrected names | File:", combined_filename, "\n"))
-  }
-  
-  #--------------------------------------------------------------------------#
-  # CREATE OVERVIEW FACETED PLOT - ALL YEARS TOGETHER
-  #--------------------------------------------------------------------------#
-  
-  # Order data for consistent legend ordering
-  cumulative_data$mgmt_river <- factor(cumulative_data$mgmt_river, levels = final_order)
-  
-  # Use all DOY values present in the data for the overview plot
-  all_doys_in_overview <- sort(unique(cumulative_data$doy))
-  doy_range_overview <- range(cumulative_data$doy)
-  
-  cat(paste("Overview plot: showing", length(all_doys_in_overview), "unique dates across all years\n"))
-  
-  p1_faceted <- ggplot(cumulative_data, aes(x = doy, y = cumulative_percent_of_unit, color = mgmt_river)) +
-    geom_line(linewidth = 1.8, alpha = 0.9) +  # NO POINTS, thicker lines
-    facet_wrap(~year, ncol = 1) +
-    scale_color_manual(values = watershed_colors,
-                       breaks = final_order,
-                       guide = guide_legend(override.aes = list(linewidth = 2))) +
-    scale_y_continuous(
-      labels = function(x) paste0(round(x, 1), "%"),
-      limits = c(0, 100),
-      breaks = seq(0, 100, 25)
-    ) +
-    # Show more frequent breaks based on actual data
-    scale_x_continuous(
-      limits = doy_range_overview,
-      breaks = seq(from = min(all_doys_in_overview), to = max(all_doys_in_overview), by = 6),  # Every 6 days for readability
-      labels = function(x) {
-        date_obj <- as.Date(x - 1, origin = "2024-01-01")
-        format(date_obj, "%b %d")
-      },
-      expand = expansion(mult = c(0.01, 0.01))
-    ) +
-    labs(
-      title = paste("FIXED: Run Timing Progress Overview -", watershed, "Watershed"),
-      subtitle = paste("FIXED: Corrected management unit names | DOY", min(all_doys_in_overview), "to", max(all_doys_in_overview), "| Red (headwaters) → Blue (mouth)"),
-      x = "Day of Year (Date) - Showing More Frequent Breaks",
-      y = "Cumulative Percent of Unit's Total Production",
-      color = "Management Unit\n(Watershed Position)"
-    ) +
-    theme_minimal(base_size = 11) +
-    theme(
-      plot.title = element_text(face = "bold", size = 14, hjust = 0.5),
-      plot.subtitle = element_text(size = 11, hjust = 0.5),
-      strip.text = element_text(face = "bold", size = 12),
-      legend.position = "right",
-      
-      # Enhanced axis styling
-      axis.line = element_line(color = "gray20", linewidth = 1.0),
-      axis.text = element_text(color = "gray20"),
-      axis.text.x = element_text(angle = 45, hjust = 1, size = 9, color = "gray20"),
-      axis.title = element_text(face = "bold", color = "gray20"),
-      
-      panel.grid.minor = element_blank(),
-      panel.grid.major.y = element_line(color = "gray90", linewidth = 0.3),
-      panel.grid.major.x = element_line(color = "gray90", linewidth = 0.3)
-    )
-  
-  ggsave(file.path(plot_dir, paste0("FIXED_cumulative_overview_", watershed, "_corrected_names.png")), 
-         p1_faceted, width = 14, height = 16, dpi = 300, bg = "white")
-  
-  cat("✓ Created FIXED overview faceted plot with corrected names\n")
-  
-  cat("FIXED plots created with corrected management unit names!\n")
-  
-  return(list(
-    individual_year_plots = individual_plots,
-    overview_faceted = p1_faceted,
-    mgmt_units_used = final_order,
-    colors_used = watershed_colors
-  ))
-}
-
-#' Create horizontal range plot showing min-max with mean marked
-create_run_duration_range_plot <- function(run_duration_data, watershed_colors, mgmt_rivers_ordered, 
-                                           watershed, interval_days) {
-  
-  cat("Creating horizontal range plot with mean markers...\n")
-  
-  # Create output directory
-  plot_dir <- here("Analysis_Results/Cumulative_Distribution/Plots")
-  dir.create(plot_dir, showWarnings = FALSE, recursive = TRUE)
-  
-  # Clean data: only keep exactly the management units that are in mgmt_rivers_ordered
-  clean_data <- run_duration_data %>%
-    filter(!is.na(mgmt_river), !is.na(days_to_50_percent)) %>%
-    filter(mgmt_river %in% mgmt_rivers_ordered)
-  
-  cat(paste("Data filtering:\n"))
-  cat(paste("  Original run duration rows:", nrow(run_duration_data), "\n"))
-  cat(paste("  After cleaning:", nrow(clean_data), "\n"))
-  cat(paste("  Management units:", length(unique(clean_data$mgmt_river)), "\n"))
-  
-  if (nrow(clean_data) == 0) {
-    cat("❌ No clean data available for range plot\n")
-    return(list(range_plot = NULL, summary_stats = NULL, filename = NULL))
-  }
-  
-  # Ensure clean_data has the same factor levels as the cumulative plots
-  clean_data$mgmt_river <- factor(clean_data$mgmt_river, levels = mgmt_rivers_ordered)
-  
-  # Calculate summary statistics for the range plot
-  duration_stats <- clean_data %>%
-    group_by(mgmt_river) %>%
-    summarise(
-      n_years = n(),
-      mean_days = mean(days_to_50_percent, na.rm = TRUE),
-      min_days = min(days_to_50_percent, na.rm = TRUE),
-      max_days = max(days_to_50_percent, na.rm = TRUE),
-      range_days = max_days - min_days,
-      .groups = 'drop'
-    ) %>%
-    arrange(mean_days)
-  
-  # Ensure factor levels match for plotting
-  duration_stats$mgmt_river <- factor(duration_stats$mgmt_river, levels = mgmt_rivers_ordered)
-  
-  # Create the MODERN HORIZONTAL range plot
-  p_range <- ggplot(duration_stats, aes(y = mgmt_river)) +
-    # Range lines (min to max)
-    geom_segment(aes(x = min_days, xend = max_days, 
-                     color = mgmt_river), 
-                 linewidth = 6, alpha = 0.7) +
-    
-    # Mean markers (black marks)
-    geom_point(aes(x = mean_days), 
-               color = "black", 
-               size = 4, 
-               shape = "|",  # Vertical line shape
-               stroke = 2) +
-    
-    # Use the exact same colors as cumulative plots for the range lines
-    scale_color_manual(values = watershed_colors, 
-                       breaks = mgmt_rivers_ordered,
-                       guide = "none") +
-    
-    # Modern X-axis formatting
-    scale_x_continuous(
-      name = "Days to ABOVE 50% Completion",
-      breaks = function(x) pretty(x, n = 6),
-      expand = expansion(mult = c(0.02, 0.02)),
-      labels = function(x) paste0(x, " days")
-    ) +
-    
-    # Clean Y-axis formatting
-    scale_y_discrete(
-      name = NULL,  # Remove y-axis title for cleaner look
-      limits = rev(mgmt_rivers_ordered)
-    ) +
-    
-    # Modern, minimal labels
-    labs(
-      title = "FIXED: Run Duration Range",
-      subtitle = paste0("FIXED management unit names | ", watershed, " Watershed • 2017–2021 | Range (min-max) with mean"),
-      caption = "Colored lines = min to max range | Black marks = mean"
-    ) +
-    
-    # Modern minimal theme
-    theme_void() +
-    theme(
-      # Modern typography
-      plot.title = element_text(
-        face = "bold", 
-        size = 20, 
-        hjust = 0, 
-        color = "gray15",
-        margin = margin(b = 5)
-      ),
-      plot.subtitle = element_text(
-        size = 13, 
-        hjust = 0, 
-        color = "gray50",
-        margin = margin(b = 20)
-      ),
-      plot.caption = element_text(
-        size = 11, 
-        hjust = 0, 
-        color = "gray60",
-        margin = margin(t = 15)
-      ),
-      
-      # Clean axis styling
-      axis.text.y = element_text(
-        size = 11, 
-        color = "gray30",
-        hjust = 1,
-        margin = margin(r = 10)
-      ),
-      axis.text.x = element_text(
-        size = 10, 
-        color = "gray30",
-        margin = margin(t = 8)
-      ),
-      axis.title.x = element_text(
-        size = 12, 
-        color = "gray20",
-        face = "bold",
-        margin = margin(t = 15)
-      ),
-      
-      # Minimal grid
-      panel.grid.major.x = element_line(
-        color = "gray92", 
-        linewidth = 0.4,
-        linetype = "solid"
-      ),
-      panel.grid.minor.x = element_line(
-        color = "gray96", 
-        linewidth = 0.2
-      ),
-      panel.grid.major.y = element_blank(),
-      panel.grid.minor.y = element_blank(),
-      
-      # Modern spacing
-      plot.margin = margin(20, 25, 20, 20, "mm"),
-      
-      # Clean background
-      plot.background = element_rect(fill = "white", color = NA),
-      panel.background = element_rect(fill = "white", color = NA),
-      
-      # Remove all axis lines and ticks for ultra-clean look
-      axis.line = element_blank(),
-      axis.ticks = element_blank()
-    )
-  
-  # Save the modern range plot
-  range_filename <- paste0("FIXED_run_duration_range_", watershed, "_", interval_days, "day_intervals.png")
-  ggsave(file.path(plot_dir, range_filename), p_range, 
-         width = 12, height = 8, dpi = 300, bg = "white")
-  
-  cat(paste("✅ Created FIXED modern horizontal range plot:", range_filename, "\n"))
-  cat(paste("   Showing min-max range with mean for", length(unique(clean_data$mgmt_river)), "management units\n"))
-  cat(paste("   Colors match cumulative distribution plots EXACTLY\n"))
-  
-  # Print summary statistics
-  cat("\nRun Duration Range Statistics:\n")
-  print(duration_stats, n = Inf)
-  
-  return(list(
-    range_plot = p_range,
-    summary_stats = duration_stats,
-    filename = range_filename
-  ))
-}
-export_enhanced_cumulative_data <- function(cumulative_data, summary_stats, run_duration_data, 
-                                            watershed, interval_days) {
-  
-  cat("Exporting data with corrected management unit names...\n")
-  
-  # Create output directory
-  csv_dir <- here("Analysis_Results/Cumulative_Distribution/CSV")
-  dir.create(csv_dir, showWarnings = FALSE, recursive = TRUE)
-  
-  # Export full cumulative data
-  cumulative_clean <- cumulative_data %>%
-    select(year, doy, interval_number, mgmt_river, cumulative_production, 
-           cumulative_percent_of_unit, overall_percent, fish_count_cumulative) %>%
-    arrange(year, mgmt_river, doy)
-  
-  cumulative_filepath <- file.path(csv_dir, paste0("FIXED_cumulative_distribution_data_", 
-                                                   watershed, "_", interval_days, "day_intervals.csv"))
-  write.csv(cumulative_clean, cumulative_filepath, row.names = FALSE)
-  cat(paste("Exported FIXED cumulative data to:", basename(cumulative_filepath), "\n"))
-  
-  # Export run duration metrics
-  run_duration_clean <- run_duration_data %>%
-    select(year, mgmt_river, run_start_doy, doy_50_percent, days_to_50_percent, 
-           percent_at_50_doy, total_production, final_overall_percent) %>%
-    arrange(year, mgmt_river)
-  
-  run_duration_filepath <- file.path(csv_dir, paste0("FIXED_run_duration_metrics_", 
-                                                     watershed, "_", interval_days, "day_intervals.csv"))
-  write.csv(run_duration_clean, run_duration_filepath, row.names = FALSE)
-  cat(paste("Exported FIXED run duration metrics to:", basename(run_duration_filepath), "\n"))
-  
-  # Export summary statistics
-  summary_filepath <- file.path(csv_dir, paste0("FIXED_timing_summary_stats_", 
-                                                watershed, "_", interval_days, "day_intervals.csv"))
-  write.csv(summary_stats, summary_filepath, row.names = FALSE)
-  cat(paste("Exported FIXED summary statistics to:", basename(summary_filepath), "\n"))
-  
-  # Export wide format for easy plotting
-  cumulative_wide <- cumulative_data %>%
-    select(year, doy, mgmt_river, cumulative_percent_of_unit) %>%
-    pivot_wider(names_from = mgmt_river, values_from = cumulative_percent_of_unit, 
-                values_fill = 0, names_prefix = "mgmt_") %>%
-    arrange(year, doy)
-  
-  wide_filepath <- file.path(csv_dir, paste0("FIXED_cumulative_distribution_wide_", 
-                                             watershed, "_", interval_days, "day_intervals.csv"))
-  write.csv(cumulative_wide, wide_filepath, row.names = FALSE)
-  cat(paste("Exported FIXED wide format data to:", basename(wide_filepath), "\n"))
-  
-  cat("All FIXED CSV exports completed!\n")
-}
-
 ################################################################################
 # MAIN EXECUTION - RUNS AUTOMATICALLY WHEN SCRIPT IS EXECUTED
 ################################################################################
@@ -938,20 +956,6 @@ if (!is.null(results)) {
       cat(paste("\n🏃 FASTEST BUILD-UP:", fastest_unit, "- avg", fastest_days, "days to above 50%\n"))
       cat(paste("🐌 SLOWEST BUILD-UP:", slowest_unit, "- avg", slowest_days, "days to above 50%\n"))
     }
-    
-    cat("\nSimple calculation: Days from run start to ABOVE 50% completion by management unit:\n")
-    print(duration_summary)
-    
-    # Show which management unit has fastest/slowest average build-up
-    if (nrow(final_duration_summary) > 0) {
-      fastest_unit <- final_duration_summary$mgmt_river[1]
-      slowest_unit <- final_duration_summary$mgmt_river[nrow(final_duration_summary)]
-      fastest_days <- final_duration_summary$avg_days_to_50[1]
-      slowest_days <- final_duration_summary$avg_days_to_50[nrow(final_duration_summary)]
-      
-      cat(paste("\n🏃 FASTEST BUILD-UP:", fastest_unit, "- avg", fastest_days, "days to 50%\n"))
-      cat(paste("🐌 SLOWEST BUILD-UP:", slowest_unit, "- avg", slowest_days, "days to 50%\n"))
-    }
   }
   
   # Verify 3-day intervals
@@ -976,7 +980,7 @@ if (!is.null(results)) {
   }
   
   cat("\n📊 FIXED OVERVIEW PLOT:\n")
-  cat(paste("   FIXED_cumulative_overview_", results$parameters$watershed, "_corrected_names.png\n"))
+  cat(paste("   FIXED_cumulative_overview_", results$parameters$watershed, "_corrected_names_PAPER.png\n"))
   
   cat("\n📊 FIXED RUN DURATION RANGE PLOT:\n")
   if (!is.null(results$plots$run_duration_range_plot)) {
