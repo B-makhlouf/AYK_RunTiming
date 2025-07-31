@@ -159,7 +159,8 @@ run_closure_analysis <- function(years = CONFIG$years,
   # CREATE VISUALIZATIONS
   #--------------------------------------------------------------------------
   
-  create_closure_boxplot(combined_results, output_dir)
+  create_closure_plots(combined_results, output_dir)  # Creates BOTH plots
+  
   
   #--------------------------------------------------------------------------
   # CREATE SUMMARY STATISTICS

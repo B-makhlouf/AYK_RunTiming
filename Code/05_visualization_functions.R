@@ -660,49 +660,291 @@ create_closure_boxplot <- function(closure_data, output_dir) {
   
   year_range <- paste0(min(closure_data$year), "-", max(closure_data$year))
   
-  boxplot <- ggplot(closure_data, aes(x = mgmt_river, y = protection_percentage)) +
-    geom_boxplot(
-      fill = "lightblue", 
-      alpha = 0.7, 
-      outlier.size = 2.5,
-      outlier.shape = 16,
-      linewidth = 0.6,
-      color = "darkblue"
+  # Get management units and apply watershed ordering (same as cumulative)
+  mgmt_rivers <- sort(unique(closure_data$mgmt_river))
+  final_order <- WATERSHED_ORDER[WATERSHED_ORDER %in% mgmt_rivers]
+  missing_units <- setdiff(mgmt_rivers, WATERSHED_ORDER)
+  if (length(missing_units) > 0) {
+    final_order <- c(final_order, missing_units)
+  }
+  
+  # Apply ordering (reverse for coord_flip so upstream appears at top)
+  closure_data$mgmt_river <- factor(closure_data$mgmt_river, levels = rev(final_order))
+  
+  # Create colors EXACTLY matching cumulative distribution plots
+  n_units <- length(final_order)
+  watershed_colors <- colorRampPalette(c(
+    "#8B0000", "#CC0000", "#FF0000", "#FF4500", "#FF8C00", "#FFA500", "#FFB347",
+    "#87CEEB", "#4682B4", "#1E90FF", "#0000FF", "#000080"
+  ))(n_units)
+  names(watershed_colors) <- final_order
+  
+  # Reverse the color mapping to match the reversed factor levels
+  watershed_colors_reversed <- watershed_colors[rev(names(watershed_colors))]
+  names(watershed_colors_reversed) <- rev(final_order)
+  
+  # CONTEMPORARY DESIGN: Range plot with distributions
+  boxplot <- ggplot(closure_data, aes(y = mgmt_river, x = protection_percentage, color = mgmt_river, fill = mgmt_river)) +
+    
+    # Modern approach: violin plot for distribution shape (subtle)
+    geom_violin(
+      alpha = 0.15,
+      scale = "width",
+      width = 0.6,
+      color = NA  # No violin borders
     ) +
-    coord_flip() +
-    scale_y_continuous(
-      labels = function(x) paste0(round(x, 1), "%"),
-      limits = c(0, max(closure_data$protection_percentage, na.rm = TRUE) * 1.05),
-      expand = expansion(mult = c(0.02, 0.05))
+    
+    # Add subtle range lines (min to max)
+    stat_summary(
+      fun.min = min, 
+      fun.max = max,
+      geom = "linerange",
+      linewidth = 2,
+      alpha = 0.6
     ) +
+    
+    # Prominent MEAN points (changed from median)
+    stat_summary(
+      fun = mean,  # Changed to mean
+      geom = "point",
+      size = 4,
+      color = "white",
+      stroke = 2,
+      shape = 21  # Circle with border
+    ) +
+    
+    
+    
+    # Modern color scheme
+    scale_color_manual(values = watershed_colors_reversed, guide = "none") +
+    scale_fill_manual(values = watershed_colors_reversed, guide = "none") +
+    
+    # Clean modern axes
+    scale_x_continuous(
+      name = "Protection effectiveness (%)",
+      breaks = function(x) pretty(x, n = 6),
+      expand = expansion(mult = c(0.02, 0.05)),
+      labels = function(x) paste0(round(x, 1), "%")
+    ) +
+    
+    scale_y_discrete(
+      name = NULL,  # Remove y-axis title for cleaner look
+      expand = expansion(mult = c(0.02, 0.02))
+    ) +
+    
+    # Contemporary minimal title
     labs(
-      title = "Front-End Closure Protection by Management Unit",
-      subtitle = paste("% of EACH UNIT'S total annual production within Q1 closure window | Watershed order: upstream → downstream | Years:", year_range),
-      x = "Management Unit (Watershed Position: upstream → downstream)",
-      y = "% of Unit's Total Annual Production in Q1 Closure Window",
-      caption = "Shows what % of each unit's total annual production occurs within Q1 closure period\nOrdered by position in watershed from headwaters (top) to mouth (bottom)"
+      title = "Front-End Closure Protection Effectiveness",
+      subtitle = paste("Distribution across", year_range, "• Red = Upstream • Blue = Downstream"),
+      caption = "White dots = mean • Colored areas show data distribution • Range lines show min-max"
     ) +
-    theme_minimal(base_size = 12) +
+    
+    # Ultra-modern theme
+    theme_void() +
     theme(
-      plot.title = element_text(face = "bold", size = 16, hjust = 0.5, color = "grey20"),
-      plot.subtitle = element_text(size = 12, hjust = 0.5, color = "gray40"),
-      plot.caption = element_text(size = 10, hjust = 0.5, face = "italic", color = "gray50"),
-      panel.grid.minor = element_blank(),
+      # Contemporary typography
+      plot.title = element_text(
+        face = "bold",
+        size = 20,
+        hjust = 0,
+        color = "gray15",
+        margin = margin(b = 5)
+      ),
+      plot.subtitle = element_text(
+        size = 14,
+        hjust = 0,
+        color = "gray50",
+        margin = margin(b = 25)
+      ),
+      plot.caption = element_text(
+        size = 11,
+        hjust = 0,
+        color = "gray60",
+        margin = margin(t = 20)
+      ),
+      
+      # Minimal axis text
+      axis.text.y = element_text(
+        size = 12,
+        color = "gray30",
+        hjust = 1,
+        margin = margin(r = 15)
+      ),
+      axis.text.x = element_text(
+        size = 11,
+        color = "gray30",
+        margin = margin(t = 10)
+      ),
+      axis.title.x = element_text(
+        size = 13,
+        color = "gray20",
+        face = "bold",
+        margin = margin(t = 15)
+      ),
+      
+      # Extremely minimal grid
+      panel.grid.major.x = element_line(
+        color = "gray94",
+        linewidth = 0.3
+      ),
+      panel.grid.minor.x = element_line(
+        color = "gray97",
+        linewidth = 0.2
+      ),
       panel.grid.major.y = element_blank(),
-      panel.grid.major.x = element_line(color = "gray90", linewidth = 0.3),
-      axis.title = element_text(face = "bold", size = 12),
-      axis.text.y = element_text(size = 11),
-      axis.text.x = element_text(size = 10),
+      panel.grid.minor.y = element_blank(),
+      
+      # Clean spacing
+      plot.margin = margin(30, 30, 30, 30, "mm"),
       plot.background = element_rect(fill = "white", color = NA),
-      panel.background = element_rect(fill = "white", color = NA),
-      plot.margin = margin(15, 15, 15, 15),
-      panel.border = element_rect(color = "gray80", fill = NA, linewidth = 0.5)
+      panel.background = element_rect(fill = "white", color = NA)
     )
   
-  ggsave(file.path(output_dir, "front_end_closure_protection_boxplot.png"), 
+  ggsave(file.path(output_dir, "front_end_closure_protection_modern.png"), 
+         boxplot, width = 14, height = 10, dpi = 300, bg = "white")
+  
+  message("Created contemporary closure protection plot with modern design")
+  message("Features: violin distributions + range lines + median points + individual data")
+  
+  # Print color mapping for verification
+  message("Color mapping (upstream to downstream):")
+  for (i in 1:length(final_order)) {
+    message(paste("  ", final_order[i], ":", watershed_colors[i]))
+  }
+}
+
+### Traditional boxplot 
+create_closure_boxplot_traditional <- function(closure_data, output_dir) {
+  
+  year_range <- paste0(min(closure_data$year), "-", max(closure_data$year))
+  
+  # Get management units and apply watershed ordering (same as cumulative)
+  mgmt_rivers <- sort(unique(closure_data$mgmt_river))
+  final_order <- WATERSHED_ORDER[WATERSHED_ORDER %in% mgmt_rivers]
+  missing_units <- setdiff(mgmt_rivers, WATERSHED_ORDER)
+  if (length(missing_units) > 0) {
+    final_order <- c(final_order, missing_units)
+  }
+  
+  # Apply ordering (reverse for coord_flip so upstream appears at top)
+  closure_data$mgmt_river <- factor(closure_data$mgmt_river, levels = rev(final_order))
+  
+  # Create colors EXACTLY matching cumulative distribution plots
+  n_units <- length(final_order)
+  watershed_colors <- colorRampPalette(c(
+    "#8B0000", "#CC0000", "#FF0000", "#FF4500", "#FF8C00", "#FFA500", "#FFB347",
+    "#87CEEB", "#4682B4", "#1E90FF", "#0000FF", "#000080"
+  ))(n_units)
+  names(watershed_colors) <- final_order
+  
+  # Reverse the color mapping to match the reversed factor levels
+  watershed_colors_reversed <- watershed_colors[rev(names(watershed_colors))]
+  names(watershed_colors_reversed) <- rev(final_order)
+  
+  # MODERN TRADITIONAL BOXPLOT - KEEPING ORIGINAL FILL COLORS
+  boxplot <- ggplot(closure_data, aes(x = mgmt_river, y = protection_percentage, fill = mgmt_river)) +
+    geom_boxplot(
+      alpha = 0.8,  # Keep original alpha
+      outlier.size = 2.8,  # Keep original size
+      outlier.shape = 16,
+      outlier.alpha = 0.9,
+      outlier.colour = "gray20",  # Keep original outlier color
+      colour = "gray30",  # Keep original box border color
+      linewidth = 0.5,  # Keep original line width
+      width = 0.75  # Keep original width
+    ) +
+    
+    # Use the exact same colors as cumulative distribution plots - UNCHANGED
+    scale_fill_manual(values = watershed_colors_reversed, guide = "none") +
+    coord_flip() +
+    
+    # Modern axis styling 
+    scale_y_continuous(
+      name = "Protection Effectiveness (%)",
+      breaks = function(x) pretty(x, n = 6),
+      expand = expansion(mult = c(0.02, 0.05)),
+      labels = function(x) paste0(round(x, 1), "%")
+    ) +
+    
+    scale_x_discrete(name = "Management Unit") +
+    
+    # Clean, modern title - NO SUBTITLES
+    labs(
+      title = "Front-End Closure Protection by Management Unit"
+    ) +
+    
+    # Modern minimal theme
+    theme_minimal(base_size = 14) +
+    theme(
+      # Modern typography
+      plot.title = element_text(
+        family = "Arial",
+        face = "bold", 
+        size = 20, 
+        hjust = 0.5, 
+        color = "#2c3e50",
+        margin = margin(b = 25)
+      ),
+      
+      # Modern axis styling - NO SUBTITLE TEXT
+      axis.text.y = element_text(
+        family = "Arial",
+        size = 12, 
+        color = "#2c3e50"
+      ),
+      axis.text.x = element_text(
+        family = "Arial",
+        size = 11, 
+        color = "#2c3e50"
+      ),
+      axis.title = element_text(
+        family = "Arial",
+        face = "bold", 
+        size = 14, 
+        color = "#34495e"
+      ),
+      axis.title.x = element_text(margin = margin(t = 15)),
+      axis.title.y = element_text(margin = margin(r = 15)),
+      
+      # Ultra-minimal grid
+      panel.grid.major.x = element_line(color = "#ecf0f1", linewidth = 0.5),
+      panel.grid.minor.x = element_blank(),
+      panel.grid.major.y = element_blank(),
+      panel.grid.minor.y = element_blank(),
+      
+      # Modern clean spacing
+      plot.margin = margin(25, 25, 25, 25, "mm"),
+      plot.background = element_rect(fill = "white", color = NA),
+      panel.background = element_rect(fill = "white", color = NA),
+      
+      # Remove traditional border for cleaner look
+      panel.border = element_blank(),
+      
+      # Add subtle axis lines
+      axis.line.x = element_line(color = "#bdc3c7", linewidth = 0.5),
+      axis.ticks = element_line(color = "#bdc3c7", linewidth = 0.4),
+      axis.ticks.length = unit(0.15, "cm")
+    )
+  
+  ggsave(file.path(output_dir, "front_end_closure_protection_boxplot_modern.png"), 
          boxplot, width = 12, height = 10, dpi = 300, bg = "white")
   
-  message("Created closure protection boxplot")
+  message("Created modern traditional closure protection boxplot")
 }
+
+# Master function that creates BOTH plots
+create_closure_plots <- function(closure_data, output_dir) {
+  
+  # Create the modern violin/range plot
+  create_closure_boxplot(closure_data, output_dir)
+  
+  # Create the traditional boxplot
+  create_closure_boxplot_traditional(closure_data, output_dir)
+  
+  message("Created both modern and traditional closure protection plots:")
+  message("  - front_end_closure_protection_modern.png (violin + mean)")
+  message("  - front_end_closure_protection_boxplot_traditional.png (classic boxplot)")
+}
+
 
 cat("✓ All visualization functions loaded successfully\n")
