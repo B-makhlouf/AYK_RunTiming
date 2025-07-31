@@ -91,20 +91,27 @@ run_tributary_analysis <- function(years = CONFIG$years,
         basin_assign_norm <- basin_assign_rescale / max(basin_assign_rescale, na.rm = TRUE)
         
         #----------------------------------------------------------------------
-        # CREATE TRIBUTARY MAP
+        # CREATE TRIBUTARY MAP WITH HISTOGRAM
         #----------------------------------------------------------------------
         
         # Create DOY histogram
         gg_hist <- create_doy_histogram(natal_data, current_subset, quartile_data$labels[q])
         
-        # Create tributary map (matching original style exactly)
+        # Create tributary map (matching original style exactly) - NOW WITH HISTOGRAM
         trib_filename <- glue("{watershed}_{year}_DOY_Q{q}.png")
         trib_path <- file.path(tributary_dir, trib_filename)
         
         create_tributary_map(
-          spatial_data$basin, spatial_data$edges, basin_assign_norm,
-          year, watershed, quartile_data$labels[q], trib_path,
-          priors$StreamOrderPrior, priors$pid_prior
+          basin = spatial_data$basin, 
+          edges = spatial_data$edges, 
+          basin_assign_norm = basin_assign_norm,
+          year = year, 
+          watershed = watershed, 
+          subset_label = quartile_data$labels[q], 
+          output_path = trib_path,
+          StreamOrderPrior = priors$StreamOrderPrior, 
+          pid_prior = priors$pid_prior,
+          gg_hist = gg_hist  # <- ADD HISTOGRAM HERE - THIS WAS MISSING!
         )
         
         #----------------------------------------------------------------------

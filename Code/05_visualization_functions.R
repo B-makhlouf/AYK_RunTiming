@@ -70,7 +70,7 @@ create_doy_histogram <- function(full_dataset, current_subset, title = NULL) {
 
 #' Create tributary map (matching original style exactly)
 create_tributary_map <- function(basin, edges, basin_assign_norm, year, watershed, 
-                                 subset_label, output_path, StreamOrderPrior = NULL, pid_prior = NULL) {
+                                 subset_label, output_path, StreamOrderPrior = NULL, pid_prior = NULL, gg_hist = NULL) {
   
   png(file = output_path, width = 9, height = 8, units = "in", res = 300, bg = "white")
   
@@ -138,6 +138,30 @@ create_tributary_map <- function(basin, edges, basin_assign_norm, year, watershe
          title = "Relative posterior density", 
          bty = "n",
          bg = "white")
+  
+  # ADD HISTOGRAM OVERLAY (THIS WAS MISSING) - EXACTLY LIKE ORIGINAL
+  if (!is.null(gg_hist)) {
+    # Modify the histogram specifically for grid viewport use (from original code)
+    limited_hist <- gg_hist +
+      scale_x_continuous(limits = c(140, 200)) +
+      scale_y_continuous(limits = c(0, 0.1)) +
+      coord_cartesian(xlim = c(140, 200), ylim = c(0, 0.1), expand = FALSE) +
+      theme(
+        plot.background = element_rect(fill = "white", color = NA),
+        panel.background = element_rect(fill = "white", color = NA),
+        plot.margin = margin(0, 0, 0, 0)
+      )
+    
+    # Create viewport with explicit scaling (from original code)
+    vp_hist <- viewport(
+      x = 0.5, y = 0.05, 
+      width = 0.7, height = 0.2, 
+      just = c("center", "bottom")
+    )
+    
+    # Print the modified histogram (from original code)
+    print(limited_hist, vp = vp_hist)
+  }
   
   dev.off()
   
