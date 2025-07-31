@@ -168,6 +168,8 @@ test_run <- function() {
 cat("Available functions:\n")
 cat("  run_all_analyses()        # Run complete analysis suite\n")
 cat("  run_single_analysis(name) # Run one analysis: 'tributary', 'average', 'cumulative', 'closure'\n")
+
+run_single_analysis("cumulative")
 cat("  test_run()                # Quick test with 2021 data only\n\n")
 
 cat("To run everything:\n")

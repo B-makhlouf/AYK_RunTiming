@@ -74,12 +74,29 @@ PATHS <- list(
 )
 
 # Management unit ordering (upstream to downstream)
+# Management unit ordering (upstream to downstream) - CORRECTED
 WATERSHED_ORDER <- c(
-  "N. Fork Kusko", "E. Fork Kuskokwim River", "S. Fork Kusko",
-  "Upper Kusko Main", "Big River", "Takotna and Nixon Fork",
-  "Tatlawiksuk", "Swift", "Stony", "Holitna", "Hoholitna",
-  "Middle Kusko Main", "George", "Oskakawlik", "Holokuk",
-  "Aniak", "Tuluksak", "Kisaralik", "Kwethluk", "Johnson", "Lower Kusko"
+  "N. Fork Kusko", 
+  "E. Fork Kuskokwim",        # East Fork in proper position
+  "S. Fork Kusko",
+  "Upper Kusko Main", 
+  "Big River", 
+  "Takotna and Nixon Fork",
+  "Tatlawiksuk", 
+  "Swift", 
+  "Stony", 
+  "Holitna",                  # SEPARATE unit
+  "Hoholitna",                # SEPARATE unit (this was missing!)
+  "Middle Kusko Main", 
+  "George", 
+  "Oskakawlik", 
+  "Holokuk",
+  "Aniak", 
+  "Tuluksak", 
+  "Kisaralik", 
+  "Kwethluk", 
+  "Johnson", 
+  "Lower Kusko"
 )
 
 ################################################################################
