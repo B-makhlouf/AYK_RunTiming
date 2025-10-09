@@ -18,7 +18,6 @@ library(tidyr)
 #' 
 #' @return Character vector of management unit names ordered from upstream to downstream
 get_watershed_order <- function() {
-  # Exact order from your document - upstream to downstream
   watershed_order <- c(
     "N. Fork Kusko",
     "E. Fork Kuskokwim River", 
@@ -39,7 +38,7 @@ get_watershed_order <- function() {
     "Tuluksak",
     "Kisaralik",
     "Kwethluk",
-    "Johnson",
+    # "Johnson",  # REMOVE THIS LINE - now part of Lower Kusko
     "Lower Kusko"
   )
   
@@ -179,24 +178,22 @@ process_management_data <- function(edges, basin_assign_rescale, grand_total_pro
 ################################################################################
 
 #' Load spatial data for watershed analysis
+#' Load spatial data for watershed analysis
 load_spatial_data <- function(watershed, HUC = 8, min_stream_order = 3) {
   if (watershed == "Kusko") {
     edges <- st_read("/Users/benjaminmakhlouf/Spatial Data/KuskoUSGS_HUC_joined.shp", quiet = TRUE)
     basin <- st_read("/Users/benjaminmakhlouf/Desktop/Research/isoscapes_new/Kusko/Kusko_basin.shp", quiet = TRUE)
-  } else if (watershed == "Yukon") {
-    edges <- st_read("/Users/benjaminmakhlouf/Spatial Data/USGS Added/YukonUSGS.shp", quiet = TRUE)
-    basin <- st_read("/Users/benjaminmakhlouf/Spatial Data/Basin Map Necessary Shapefiles/Yuk_Mrg_final_alb.shp", quiet = TRUE)
+    
+    # **ADD THIS LINE** - Consolidate Johnson into Lower Kusko
+    edges <- consolidate_mgmt_units(edges)
+    
+    # Continue with existing filtering...
+    edges <- edges[edges$Str_Order >= min_stream_order, ]
+    
+    return(list(edges = edges, basin = basin))
   } else {
-    stop("Watershed must be either 'Kusko' or 'Yukon'")
+    stop(glue("Watershed '{watershed}' not yet configured"))
   }
-  
-  # Transform and filter data
-  edges <- st_transform(edges, st_crs(basin))
-  edges <- edges[edges$Str_Order >= min_stream_order,]
-  
-  # Note: HUC loading removed since we're not using HUC maps anymore
-  # Return without HUC data
-  return(list(edges = edges, basin = basin))
 }
 
 #' Load natal origins data for specific year and watershed
@@ -366,4 +363,32 @@ divide_doy_quartiles <- function(natal_data) {
     breaks = doy_breaks,
     labels = subset_labels
   ))
+}
+
+################################################################################
+# MANAGEMENT UNIT CONSOLIDATION
+################################################################################
+
+#' Consolidate management units by remapping specified units
+#' 
+#' @param data Data frame or sf object containing mgmt_river column
+#' @param consolidation_map Named vector where names are units to replace, 
+#'        values are the target units (default: consolidate Johnson into Lower Kusko)
+#' @return Data with consolidated management units
+consolidate_mgmt_units <- function(data, 
+                                   consolidation_map = c("Johnson" = "Lower Kusko")) {
+  
+  if (!"mgmt_river" %in% colnames(data)) {
+    warning("mgmt_river column not found - skipping consolidation")
+    return(data)
+  }
+  
+  # Apply the consolidation mapping
+  for (old_unit in names(consolidation_map)) {
+    new_unit <- consolidation_map[old_unit]
+    data$mgmt_river[data$mgmt_river == old_unit] <- new_unit
+    cat(glue("Consolidated '{old_unit}' into '{new_unit}'\n"))
+  }
+  
+  return(data)
 }
