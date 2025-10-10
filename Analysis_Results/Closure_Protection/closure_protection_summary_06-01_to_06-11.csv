@@ -1,6 +1,5 @@
 mgmt_river,mean_protection_pct,median_protection_pct,min_protection_pct,max_protection_pct,sd_protection_pct,mean_total_contribution,n_years
 Lower Kusko,9.4,9.4,4.2,17.7,5,0.2,6
-Johnson,NA,NA,Inf,-Inf,NA,0,6
 Kwethluk,7.3,5,3.1,16.4,5.2,4.7,6
 Kisaralik,9.8,8.3,5.3,18.7,4.8,6.2,6
 Tuluksak,8.3,6.9,3.8,14,3.9,5.2,6

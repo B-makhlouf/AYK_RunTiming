@@ -177,5 +177,5 @@ cat("To run everything:\n")
 cat("  run_all_analyses()\n\n")
 
 # Uncomment to run automatically:
-#run_all_analyses()
+run_all_analyses()
 

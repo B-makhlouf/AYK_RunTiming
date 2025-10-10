@@ -95,14 +95,43 @@ WATERSHED_ORDER <- c(
   "Tuluksak", 
   "Kisaralik", 
   "Kwethluk", 
-  "Johnson", 
+  #"Johnson", 
   "Lower Kusko"
 )
+
+
+################################################################################
+# MANAGEMENT UNIT CONSOLIDATION
+################################################################################
+
+#' Consolidate management units by remapping specified units
+#' @param data Data frame or sf object containing mgmt_river column
+#' @return Data with consolidated management units
+consolidate_mgmt_units <- function(data) {
+  
+  if (!"mgmt_river" %in% colnames(data)) {
+    warning("mgmt_river column not found - skipping consolidation")
+    return(data)
+  }
+  
+  # Define consolidation: Johnson → Lower Kusko
+  consolidation_map <- c("Johnson" = "Lower Kusko")
+  
+  # Apply the consolidation mapping
+  for (old_unit in names(consolidation_map)) {
+    new_unit <- consolidation_map[old_unit]
+    data$mgmt_river[data$mgmt_river == old_unit] <- new_unit
+    cat(glue("✓ Consolidated '{old_unit}' into '{new_unit}'\n"))
+  }
+  
+  return(data)
+}
 
 ################################################################################
 # ESSENTIAL DATA LOADING FUNCTIONS
 ################################################################################
 
+#' Load spatial data for a watershed
 #' Load spatial data for a watershed
 load_spatial_data <- function(watershed) {
   params <- WATERSHED_PARAMS[[watershed]]
@@ -120,6 +149,9 @@ load_spatial_data <- function(watershed) {
   # Transform CRS and filter by stream order
   edges <- st_transform(edges, st_crs(basin))
   edges <- edges[edges$Str_Order >= params$min_stream_order, ]
+  
+  # **ADD THIS LINE - Consolidate management units**
+  edges <- consolidate_mgmt_units(edges)
   
   return(list(edges = edges, basin = basin))
 }
