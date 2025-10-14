@@ -1,8 +1,8 @@
 ################################################################################
-# 99_RUN_ALL.R - SIMPLE ANALYSIS ORCHESTRATION
+# 99_RUN_ALL.R - COMPLETE ANALYSIS ORCHESTRATION
 ################################################################################
-# This script runs all analyses in sequence
-# Produces identical outputs to the original complex codebase
+# This script runs all analyses in sequence including precision analysis
+# Produces identical outputs to the original complex codebase plus new precision metrics
 ################################################################################
 
 cat("=== SALMON RUN TIMING ANALYSIS SUITE ===\n")
@@ -15,9 +15,15 @@ cat("=== SALMON RUN TIMING ANALYSIS SUITE ===\n")
 CODE_DIR <- "/Users/benjaminmakhlouf/Research_repos/AYK_RunTiming/Code"
 
 # Load all required scripts
-required_scripts <- c("00_setup.R", "05_visualization_functions.R", 
-                      "01_tributary_maps.R", "02_average_maps.R", 
-                      "03_cumulative_distribution.R", "04_closure_protection.R")
+required_scripts <- c(
+  "00_setup.R", 
+  "05_visualization_functions.R",
+  "01_tributary_maps.R", 
+  "02_average_maps.R", 
+  "03_cumulative_distribution.R", 
+  "04_closure_protection.R",
+  "06_assignment_precision.R"  # NEW: Precision analysis
+)
 
 cat("Loading required scripts...\n")
 for (script in required_scripts) {
@@ -42,11 +48,17 @@ cat("✓ All scripts loaded successfully\n\n")
 ################################################################################
 
 #' Run all analyses in sequence
-run_all_analyses <- function(years = CONFIG$years, watersheds = CONFIG$watersheds) {
+#' @param years Vector of years to analyze
+#' @param watersheds Vector of watersheds to analyze
+#' @param run_precision Whether to run precision analysis (default TRUE)
+run_all_analyses <- function(years = CONFIG$years, 
+                             watersheds = CONFIG$watersheds,
+                             run_precision = TRUE) {
   
   cat("Starting complete analysis suite...\n")
   cat("Years:", paste(years, collapse = ", "), "\n")
-  cat("Watersheds:", paste(watersheds, collapse = ", "), "\n\n")
+  cat("Watersheds:", paste(watersheds, collapse = ", "), "\n")
+  cat("Precision analysis:", ifelse(run_precision, "ENABLED", "DISABLED"), "\n\n")
   
   start_time <- Sys.time()
   
@@ -68,114 +80,138 @@ run_all_analyses <- function(years = CONFIG$years, watersheds = CONFIG$watershed
   #--------------------------------------------------------------------------
   # 2. AVERAGE PRODUCTION MAPS  
   #--------------------------------------------------------------------------
-  cat("2. Running average production mapping analysis...\n")
+  cat("2. Running average production maps analysis...\n")
   
   tryCatch({
-    run_average_maps_analysis(years, watersheds)
-    cat("   ✓ Average maps and boxplots complete\n\n")
+    run_average_analysis(years, watersheds, export_csv = TRUE)
+    cat("   ✓ Average production maps and boxplots complete\n\n")
   }, error = function(e) {
-    cat("   ❌ Average maps analysis failed:", e$message, "\n\n")
+    cat("   ❌ Average production analysis failed:", e$message, "\n\n")
   })
   
   #--------------------------------------------------------------------------
-  # 3. CUMULATIVE DISTRIBUTION
+  # 3. CUMULATIVE DISTRIBUTION ANALYSIS
   #--------------------------------------------------------------------------
   cat("3. Running cumulative distribution analysis...\n")
   
   tryCatch({
-    run_cumulative_analysis(years, watersheds, CONFIG$cumulative_interval_days, export_csv = TRUE)
-    cat("   ✓ Cumulative timing analysis complete\n\n")
+    cumulative_results <- run_cumulative_analysis(
+      years, watersheds, 
+      interval_days = CONFIG$cumulative_interval_days,
+      export_csv = TRUE
+    )
+    cat("   ✓ Cumulative distribution and run duration analysis complete\n\n")
   }, error = function(e) {
-    cat("   ❌ Cumulative analysis failed:", e$message, "\n\n")
+    cat("   ❌ Cumulative distribution analysis failed:", e$message, "\n\n")
   })
   
   #--------------------------------------------------------------------------
-  # 4. CLOSURE PROTECTION
+  # 4. CLOSURE PROTECTION ANALYSIS
   #--------------------------------------------------------------------------
   cat("4. Running front-end closure protection analysis...\n")
   
   tryCatch({
-    run_closure_analysis(years, watersheds, CONFIG$closure_dates$start, CONFIG$closure_dates$end, export_csv = TRUE)
+    closure_results <- run_closure_analysis(
+      years, watersheds,
+      closure_start = CONFIG$closure_dates$start,
+      closure_end = CONFIG$closure_dates$end,
+      export_csv = TRUE
+    )
     cat("   ✓ Closure protection analysis complete\n\n")
   }, error = function(e) {
-    cat("   ❌ Closure analysis failed:", e$message, "\n\n")
+    cat("   ❌ Closure protection analysis failed:", e$message, "\n\n")
   })
   
   #--------------------------------------------------------------------------
-  # COMPLETION SUMMARY
+  # 5. ASSIGNMENT PRECISION ANALYSIS (NEW!)
+  #--------------------------------------------------------------------------
+  if (run_precision) {
+    cat("5. Running individual assignment precision analysis...\n")
+    
+    tryCatch({
+      precision_results <- run_precision_analysis(
+        years, watersheds,
+        export_csv = TRUE
+      )
+      cat("   ✓ Assignment precision analysis complete\n\n")
+    }, error = function(e) {
+      cat("   ❌ Assignment precision analysis failed:", e$message, "\n\n")
+    })
+  } else {
+    cat("5. Skipping assignment precision analysis (disabled)\n\n")
+    precision_results <- NULL
+  }
+  
+  #--------------------------------------------------------------------------
+  # SUMMARY
   #--------------------------------------------------------------------------
   end_time <- Sys.time()
-  total_time <- round(difftime(end_time, start_time, units = "mins"), 1)
+  elapsed <- round(difftime(end_time, start_time, units = "mins"), 2)
   
-  cat("=== ANALYSIS COMPLETE ===\n")
-  cat("Total time:", total_time, "minutes\n\n")
+  cat("\n=== ANALYSIS SUITE COMPLETE ===\n")
+  cat(glue("Total runtime: {elapsed} minutes\n"))
+  cat(glue("Output directory: {PATHS$output_dir}\n\n"))
   
-  cat("Check these directories for outputs:\n")
-  cat("  Maps:", PATHS$maps_dir, "\n")
-  cat("  Figures:", PATHS$figures_dir, "\n") 
-  cat("  Data:", PATHS$output_dir, "\n\n")
+  cat("Analyses completed:\n")
+  cat("  ✓ 1. Tributary mapping and management river analysis\n")
+  cat("  ✓ 2. Average production maps and boxplots\n")
+  cat("  ✓ 3. Cumulative distribution and run duration\n")
+  cat("  ✓ 4. Front-end closure protection\n")
+  if (run_precision) {
+    cat("  ✓ 5. Individual assignment precision\n")
+  }
   
-  cat("Key outputs created:\n")
-  cat("  • Tributary maps by quartile\n")
-  cat("  • Management river maps and CSV data\n")
-  cat("  • Average production maps and boxplots\n")
-  cat("  • Cumulative timing progression plots\n")
-  cat("  • Run duration analysis\n")
-  cat("  • Closure protection boxplots and data\n")
+  # Return results for further analysis if needed
+  return(list(
+    precision = if (run_precision) precision_results else NULL,
+    runtime = elapsed
+  ))
 }
 
 ################################################################################
-# QUICK RUN FUNCTIONS
+# CONVENIENCE FUNCTIONS FOR RUNNING INDIVIDUAL ANALYSES
 ################################################################################
 
-#' Run just one analysis
-run_single_analysis <- function(analysis) {
-  
-  years <- CONFIG$years
-  watersheds <- CONFIG$watersheds
-  
-  switch(analysis,
-         "tributary" = run_tributary_analysis(years, watersheds, export_csv = TRUE),
-         "average" = run_average_maps_analysis(years, watersheds),
-         "cumulative" = run_cumulative_analysis(years, watersheds, CONFIG$cumulative_interval_days, export_csv = TRUE),
-         "closure" = run_closure_analysis(years, watersheds, CONFIG$closure_dates$start, CONFIG$closure_dates$end, export_csv = TRUE),
-         stop("Analysis must be one of: tributary, average, cumulative, closure")
-  )
-  
-  cat("✓", analysis, "analysis complete\n")
+#' Run only the precision analysis (useful for testing)
+run_precision_only <- function(years = CONFIG$years, 
+                               watersheds = CONFIG$watersheds) {
+  cat("Running assignment precision analysis only...\n")
+  results <- run_precision_analysis(years, watersheds, export_csv = TRUE)
+  return(results)
 }
 
-#' Quick test run (just one year)
-test_run <- function() {
-  cat("Running test analysis with 2021 data only...\n")
-  
-  test_years <- c(2021)
-  test_watersheds <- c("Kusko")
-  
-  cat("1. Tributary analysis...\n")
-  run_tributary_analysis(test_years, test_watersheds, export_csv = TRUE)
-  
-  cat("2. Average maps...\n") 
-  run_average_maps_analysis(test_years, test_watersheds)
-  
-  cat("✓ Test run complete\n")
+#' Run the core 4 original analyses (without precision)
+run_original_analyses <- function(years = CONFIG$years, 
+                                  watersheds = CONFIG$watersheds) {
+  return(run_all_analyses(years, watersheds, run_precision = FALSE))
 }
 
 ################################################################################
-# EXECUTION
+# EXECUTION SECTION
 ################################################################################
 
+# Uncomment one of these lines to run the analyses:
+
+# Run all analyses including new precision analysis:
+# results <- run_all_analyses()
+
+# Run only original 4 analyses:
+# results <- run_original_analyses()
+
+# Run only precision analysis:
+# precision_results <- run_precision_only()
+
+# Run with custom parameters:
+# results <- run_all_analyses(
+#   years = c(2017, 2018, 2019), 
+#   watersheds = c("Yukon"),
+#   run_precision = TRUE
+# )
+
+cat("\n=== READY TO RUN ===\n")
 cat("Available functions:\n")
-cat("  run_all_analyses()        # Run complete analysis suite\n")
-cat("  run_single_analysis(name) # Run one analysis: 'tributary', 'average', 'cumulative', 'closure'\n")
-
-#run_single_analysis("cumulative")
-run_single_analysis("closure")
-cat("  test_run()                # Quick test with 2021 data only\n\n")
-
-cat("To run everything:\n")
-cat("  run_all_analyses()\n\n")
-
-# Uncomment to run automatically:
-run_all_analyses()
-
+cat("  run_all_analyses()          # Run all 5 analyses\n")
+cat("  run_original_analyses()     # Run original 4 only\n")
+cat("  run_precision_only()        # Run precision analysis only\n")
+cat("\nTo execute, uncomment one of the function calls above\n")
+cat("or run manually in the console.\n")
