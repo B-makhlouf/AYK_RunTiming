@@ -470,6 +470,166 @@ cat("  Saved:", basename(fname_c), "\n")
 cat("=== PRES-C COMPLETE ===\n\n")
 
 ################################################################################
+# PRES-D: PROTECTION BY GROUP AND TIMING OFFSET — PROGRESSIVE REVEAL
+# Three figures with identical axes/styling:
+#   D1: Current (0-day offset) for Group 1 only
+#   D2: Current (0-day offset) for all Groups
+#   D3: Full figure (all offsets, all groups)
+################################################################################
+
+cat("=== PRES-D: Protection by Group — progressive reveal ===\n")
+
+# ----- Rebuild horizontal plot data (mirrors Analysis 5 in main script) -----
+pres_plot_summary <- combined_data %>%
+  mutate(cluster = factor(cluster, levels = cluster_order)) %>%
+  group_by(cluster, offset_label) %>%
+  summarise(
+    min_pct    = min(closure_protection_pct,    na.rm = TRUE),
+    max_pct    = max(closure_protection_pct,    na.rm = TRUE),
+    median_pct = median(closure_protection_pct, na.rm = TRUE),
+    .groups = "drop"
+  )
+
+pres_plot_data <- combined_data %>%
+  mutate(
+    cluster     = factor(cluster, levels = cluster_order),
+    cluster_num = as.numeric(factor(cluster, levels = cluster_order)),
+    offset_position = case_when(
+      offset_label == "-3 days (June 8)"   ~ cluster_num - 0.20,
+      offset_label == "Current (June 11)"  ~ cluster_num - 0.07,
+      offset_label == "+3 days (June 14)"  ~ cluster_num + 0.07,
+      offset_label == "+6 days (June 17)"  ~ cluster_num + 0.20
+    )
+  )
+
+pres_summary_pos <- pres_plot_summary %>%
+  mutate(
+    cluster_num = as.numeric(factor(cluster, levels = cluster_order)),
+    offset_position = case_when(
+      offset_label == "-3 days (June 8)"   ~ cluster_num - 0.20,
+      offset_label == "Current (June 11)"  ~ cluster_num - 0.07,
+      offset_label == "+3 days (June 14)"  ~ cluster_num + 0.07,
+      offset_label == "+6 days (June 17)"  ~ cluster_num + 0.20
+    )
+  )
+
+# Fixed y upper limit derived from full data so all three plots are identical
+y_upper <- ceiling(max(combined_data$closure_protection_pct, na.rm = TRUE) / 5) * 5 + 5
+
+# Full bottom-label data frame (same construction as main script)
+full_label_data <- data.frame(
+  cluster_num     = rep(1:6, each = 4),
+  offset_position = rep(c(0.80, 0.93, 1.07, 1.20), 6) + rep(0:5, each = 4),
+  label           = rep(c("-3", "0", "+3", "+6"), 6)
+)
+
+# Helper: build one version of the plot
+make_protection_plot <- function(show_clusters, show_offsets) {
+
+  d_points  <- pres_plot_data    %>% filter(as.character(cluster) %in% show_clusters,
+                                             as.character(offset_label) %in% show_offsets)
+  d_summary <- pres_summary_pos  %>% filter(as.character(cluster) %in% show_clusters,
+                                             as.character(offset_label) %in% show_offsets)
+
+  # Map offset labels to short labels for bottom text
+  offset_short_map <- c(
+    "-3 days (June 8)"   = "-3",
+    "Current (June 11)"  = "0",
+    "+3 days (June 14)"  = "+3",
+    "+6 days (June 17)"  = "+6"
+  )
+  shown_short <- unname(offset_short_map[show_offsets])
+  shown_cnums <- which(cluster_order %in% show_clusters)
+
+  d_labels <- full_label_data %>%
+    filter(cluster_num %in% shown_cnums, label %in% shown_short)
+
+  ggplot() +
+    # Range bars (min to max)
+    geom_segment(data = d_summary,
+                 aes(x = offset_position, xend = offset_position,
+                     y = min_pct, yend = max_pct, color = cluster),
+                 linewidth = 1.5, alpha = 0.25) +
+    # Individual year points
+    geom_point(data = d_points,
+               aes(x = offset_position, y = closure_protection_pct,
+                   color = cluster, fill = cluster),
+               size = 3.5, alpha = 0.5, shape = 21, stroke = 0.8) +
+    # Median markers
+    geom_segment(data = d_summary,
+                 aes(x = offset_position - 0.05, xend = offset_position + 0.05,
+                     y = median_pct, yend = median_pct),
+                 color = "black", linewidth = 2.5, alpha = 1) +
+    # Offset labels below x-axis
+    geom_text(data = d_labels,
+              aes(x = offset_position, y = -2, label = label),
+              size = 3.5, color = "gray30", fontface = "bold") +
+    scale_color_manual(values = cluster_color_mapping, guide = "none") +
+    scale_fill_manual(values  = cluster_color_mapping, guide = "none") +
+    scale_x_continuous(
+      name   = "Group",
+      breaks = 1:6,
+      labels = paste0("Group ", 1:6),
+      limits = c(0.5, 6.5),
+      expand = expansion(mult = c(0.02, 0.02))
+    ) +
+    scale_y_continuous(
+      name   = "Protection Effectiveness (%)",
+      labels = function(x) paste0(round(x, 0), "%"),
+      expand = expansion(mult = c(0.1, 0.05)),
+      limits = c(-3, y_upper)
+    ) +
+    labs(title = "Front-End Closure Protection by Group and Timing Offset") +
+    coord_cartesian(clip = "off") +
+    theme_minimal(base_size = 13) +
+    theme(
+      plot.title         = element_text(face = "bold", size = 16, hjust = 0.5),
+      panel.grid.minor   = element_blank(),
+      panel.grid.major.x = element_blank(),
+      panel.grid.major.y = element_line(color = "gray90", linewidth = 0.4),
+      legend.position    = "right",
+      legend.title       = element_text(face = "bold", size = 12),
+      legend.text        = element_text(size = 11),
+      axis.text          = element_text(size = 11, color = "gray20"),
+      axis.title         = element_text(face = "bold", size = 12, color = "gray20"),
+      axis.line.x        = element_line(color = "gray40", linewidth = 0.5),
+      plot.background    = element_rect(fill = "white", color = NA),
+      panel.background   = element_rect(fill = "white", color = NA),
+      plot.margin        = margin(10, 10, 30, 10)
+    )
+}
+
+# D1: Current offset only, Group 1 only
+p_d1 <- make_protection_plot(
+  show_clusters = "Cluster 1",
+  show_offsets  = "Current (June 11)"
+)
+ggsave(file.path(PRES_DIR, "protection_reveal_1_group1_current.png"),
+       p_d1, width = 11, height = 7, dpi = 300, bg = "white")
+cat("  Saved: protection_reveal_1_group1_current.png\n")
+
+# D2: Current offset only, all groups
+p_d2 <- make_protection_plot(
+  show_clusters = cluster_order,
+  show_offsets  = "Current (June 11)"
+)
+ggsave(file.path(PRES_DIR, "protection_reveal_2_allgroups_current.png"),
+       p_d2, width = 11, height = 7, dpi = 300, bg = "white")
+cat("  Saved: protection_reveal_2_allgroups_current.png\n")
+
+# D3: All offsets, all groups (full figure)
+p_d3 <- make_protection_plot(
+  show_clusters = cluster_order,
+  show_offsets  = c("-3 days (June 8)", "Current (June 11)",
+                    "+3 days (June 14)", "+6 days (June 17)")
+)
+ggsave(file.path(PRES_DIR, "protection_reveal_3_full.png"),
+       p_d3, width = 11, height = 7, dpi = 300, bg = "white")
+cat("  Saved: protection_reveal_3_full.png\n")
+
+cat("=== PRES-D COMPLETE ===\n\n")
+
+################################################################################
 # SUMMARY
 ################################################################################
 
@@ -483,3 +643,7 @@ cat("PRES-B:", length(available_years), "individual cumulative plots (with CPUE)
 cat("  Files: cumulative_dist_with_cpue_<year>.png\n\n")
 cat("PRES-C: 1 protection vs. foregone harvest plot (flipped axes)\n")
 cat("  File: cpue_vs_protection_flipped_axes.png\n\n")
+cat("PRES-D: 3 progressive-reveal protection plots\n")
+cat("  File 1: protection_reveal_1_group1_current.png  (Group 1, current offset only)\n")
+cat("  File 2: protection_reveal_2_allgroups_current.png  (all groups, current offset only)\n")
+cat("  File 3: protection_reveal_3_full.png  (all groups, all offsets)\n\n")
