@@ -184,7 +184,7 @@ for (yr in available_years) {
     labs(
       title = paste("Cumulative distribution vs. Time —", yr),
       x     = "Date",
-      y     = "Cumulative Percent of Group's Total Production",
+      y     = "Cumulative contribution",
       color = "Group"
     ) +
     base_theme
@@ -240,7 +240,7 @@ for (yr in available_years) {
     labs(
       title = paste("Cumulative distribution vs. Time —", yr),
       x     = "Date",
-      y     = "Cumulative Percent of Group's Total Production",
+      y     = "Cumulative contribution",
       color = "Group"
     ) +
     base_theme
