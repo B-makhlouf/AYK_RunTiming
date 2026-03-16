@@ -179,7 +179,9 @@ for (yr in available_years) {
     ) +
     scale_x_continuous(
       breaks = x_breaks,
-      labels = x_labels
+      labels = x_labels,
+      limits = c(MIN_DOY, MAX_DOY),
+      expand = c(0, 0)
     ) +
     labs(
       title = paste("Cumulative distribution vs. Time —", yr),
@@ -233,7 +235,9 @@ for (yr in available_years) {
     ) +
     scale_x_continuous(
       breaks = x_breaks,
-      labels = x_labels
+      labels = x_labels,
+      limits = c(MIN_DOY, MAX_DOY),
+      expand = c(0, 0)
     ) +
     labs(
       title = paste("Cumulative distribution vs. Time —", yr),
