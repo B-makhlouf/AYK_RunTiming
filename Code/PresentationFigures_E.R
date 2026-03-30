@@ -177,7 +177,7 @@ make_map <- function(edges_managed, edges_background, basin,
       legend.title     = element_text(face = "bold", size = 10),
       legend.text      = element_text(size = 9),
       legend.key.width = unit(2.0, "cm"),
-      plot.background  = element_rect(fill = "white", color = NA),
+      plot.background  = element_rect(fill = "transparent", color = NA),
       plot.margin      = margin(8, 8, 8, 8)
     ) +
     guides(color = guide_colorbar(title.position = "top", title.hjust = 0.5,
@@ -221,7 +221,7 @@ for (yr in available_years) {
   out_file <- file.path(PRES_DIR,
                         sprintf("PRES-E_two_maps_fullyear_q1_%d.png", yr))
   ggsave(out_file, combined,
-         width = 18, height = 8, dpi = 300, bg = "white")
+         width = 18, height = 8, dpi = 300, bg = "transparent")
   cat("    Saved:", basename(out_file), "\n")
 }
 
