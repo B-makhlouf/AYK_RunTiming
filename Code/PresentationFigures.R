@@ -630,6 +630,119 @@ cat("  Saved: protection_reveal_3_full.png\n")
 cat("=== PRES-D COMPLETE ===\n\n")
 
 ################################################################################
+# PRES-E: DAILY CPUE STACKED BAR CHART — ALL YEARS
+# Shows the daily CPUE proportion over time, with each year as a stacked layer.
+# x = Date (DOY converted to calendar date), y = CPUE proportion, fill = Year
+################################################################################
+
+cat("=== PRES-E: Daily CPUE stacked bar chart (all years) ===\n")
+
+# ----- Prepare data: filter to run window -----
+cpue_bar_data <- cpue_data_full %>%
+  filter(doy >= MIN_DOY & doy <= MAX_DOY) %>%
+  mutate(
+    year       = factor(year),
+    date_label = as.Date(doy - 1, origin = "2020-01-01")   # representative calendar date
+  )
+
+# ----- Color palette: one warm-to-cool ramp per year -----
+n_years     <- length(levels(cpue_bar_data$year))
+year_colors <- setNames(
+  colorRampPalette(c("#1B4F72", "#2874A6", "#5DADE2", "#76D7C4", "#1E8449", "#A9DFBF"))(n_years),
+  levels(cpue_bar_data$year)
+)
+
+# ----- x-axis: calendar date labels -----
+doy_breaks <- seq(MIN_DOY, MAX_DOY, by = 10)
+date_labels <- format(as.Date(doy_breaks - 1, origin = "2020-01-01"), "%b %d")
+
+# ----- Build plot -----
+p_e <- ggplot(cpue_bar_data,
+              aes(x = doy, y = cpue, fill = year)) +
+  # Closure window shading
+  annotate("rect",
+           xmin = CLOSURE_START_DOY, xmax = CLOSURE_END_DOY,
+           ymin = -Inf, ymax = Inf,
+           fill = "grey85", alpha = 0.45) +
+  annotate("text",
+           x     = (CLOSURE_START_DOY + CLOSURE_END_DOY) / 2,
+           y     = Inf,
+           label = "Closure\nWindow",
+           vjust = 1.4, hjust = 0.5,
+           size  = 3.8, color = "grey40", fontface = "italic") +
+  # Stacked bars
+  geom_bar(stat     = "identity",
+           position = "stack",
+           width    = 1,
+           color    = NA) +
+  # Closure boundary lines
+  geom_vline(xintercept = c(CLOSURE_START_DOY, CLOSURE_END_DOY),
+             color = "grey50", linetype = "dashed",
+             linewidth = 0.8, alpha = 0.9) +
+  # Scales
+  scale_fill_manual(
+    values = year_colors,
+    name   = "Year",
+    guide  = guide_legend(
+      title.position = "top",
+      title.hjust    = 0.5,
+      keywidth       = unit(1.0, "cm"),
+      keyheight      = unit(0.55, "cm"),
+      override.aes   = list(color = NA)
+    )
+  ) +
+  scale_x_continuous(
+    name   = "Date",
+    breaks = doy_breaks,
+    labels = date_labels,
+    limits = c(MIN_DOY - 0.5, MAX_DOY + 0.5),
+    expand = c(0, 0)
+  ) +
+  scale_y_continuous(
+    name   = "Daily CPUE Proportion",
+    labels = scales::percent_format(accuracy = 0.1),
+    expand = expansion(mult = c(0, 0.06))
+  ) +
+  labs(
+    title    = "Daily CPUE Over the Run — Kuskokwim Chinook Salmon",
+    subtitle = paste0("Years: ", paste(levels(cpue_bar_data$year), collapse = ", "))
+  ) +
+  theme_minimal(base_size = 13) +
+  theme(
+    plot.title        = element_text(face = "bold",   size = 18, hjust = 0.5,
+                                     margin = margin(b = 4)),
+    plot.subtitle     = element_text(face = "italic", size = 13, hjust = 0.5,
+                                     color = "grey40", margin = margin(b = 10)),
+    axis.title.x      = element_text(face = "bold", size = 14, color = "grey20",
+                                     margin = margin(t = 8)),
+    axis.title.y      = element_text(face = "bold", size = 14, color = "grey20",
+                                     margin = margin(r = 8)),
+    axis.text.x       = element_text(size = 11, color = "grey20", angle = 30, hjust = 1),
+    axis.text.y       = element_text(size = 11, color = "grey20"),
+    axis.line         = element_line(color = "black", linewidth = 0.5),
+    axis.ticks        = element_line(color = "grey40", linewidth = 0.4),
+    axis.ticks.length = unit(0.15, "cm"),
+    panel.grid.major.x = element_blank(),
+    panel.grid.major.y = element_line(color = "grey88", linewidth = 0.4),
+    panel.grid.minor   = element_blank(),
+    panel.border       = element_blank(),
+    legend.position    = "right",
+    legend.title       = element_text(face = "bold", size = 12),
+    legend.text        = element_text(size = 11),
+    legend.background  = element_rect(fill = "white", color = "grey85",
+                                      linewidth = 0.4),
+    legend.margin      = margin(6, 8, 6, 8),
+    plot.background    = element_rect(fill = "white", color = NA),
+    panel.background   = element_rect(fill = "white", color = NA),
+    plot.margin        = margin(14, 16, 14, 14)
+  )
+
+fname_e <- file.path(PRES_DIR, "cpue_stacked_bar_by_year.png")
+ggsave(fname_e, p_e, width = 12, height = 7, dpi = 300, bg = "white")
+cat("  Saved:", basename(fname_e), "\n")
+cat("=== PRES-E COMPLETE ===\n\n")
+
+################################################################################
 # SUMMARY
 ################################################################################
 
@@ -647,3 +760,5 @@ cat("PRES-D: 3 progressive-reveal protection plots\n")
 cat("  File 1: protection_reveal_1_group1_current.png  (Group 1, current offset only)\n")
 cat("  File 2: protection_reveal_2_allgroups_current.png  (all groups, current offset only)\n")
 cat("  File 3: protection_reveal_3_full.png  (all groups, all offsets)\n\n")
+cat("PRES-E: 1 stacked CPUE bar chart (all years)\n")
+cat("  File: cpue_stacked_bar_by_year.png\n\n")
