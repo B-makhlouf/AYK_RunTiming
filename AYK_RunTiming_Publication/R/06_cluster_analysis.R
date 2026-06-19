@@ -239,8 +239,9 @@ for (q in c("Q1", "Q2", "Q3", "Q4")) {
   # Determine if this is the leftmost panel (for y-axis label only)
   show_y_label <- (q == "Q1")
   
-  p_box <- ggplot(q_data, aes(x = cluster_label, y = within_quartile_pct)) +  # USE cluster_label
+  p_box <- ggplot(q_data, aes(x = within_quartile_pct, y = cluster_label)) +  # native horizontal (coord_flip renders empty in ggplot2 >= 3.5)
     geom_boxplot(
+      orientation = "y",         # boxplots run along the discrete (cluster) axis
       fill = "grey90",           # Lighter fill for better contrast
       color = "grey40",          # Lighter outline so lines are less bold
       alpha = 0.9,               # MORE OPAQUE
@@ -253,7 +254,7 @@ for (q in c("Q1", "Q2", "Q3", "Q4")) {
       fatten = 1.5               # REDUCED from 3 - thinner median line
     ) +
     # Custom scale with every other label displayed (10%, 30%, 50%)
-    scale_y_continuous(
+    scale_x_continuous(
       labels = function(x) {
         # Only show labels for 10%, 30%, 50% to avoid overcrowding
         ifelse(x %in% c(10, 30, 50), paste0(x, "%"), "")
@@ -262,7 +263,6 @@ for (q in c("Q1", "Q2", "Q3", "Q4")) {
       breaks = seq(0, 60, by = 10),  # Gridlines every 10%
       expand = expansion(mult = c(0, 0.02))
     ) +
-    coord_flip(clip = "off") +
     labs(
       x = NULL,
       y = NULL  # Remove individual panel labels
@@ -720,8 +720,9 @@ p_days_to_50 <- ggplot(days_to_50_summary, aes(y = cluster)) +
     plot.margin = margin(20, 20, 20, 20)
   )
 
-ggsave(file.path(OUTPUT_DIR, "cluster_days_to_50_percent.png"),
-       p_days_to_50, width = 10, height = 6, dpi = 300, bg = "white")
+# [trimmed: not a paper figure] days-to-50% plot not exported (CSVs below kept).
+# ggsave(file.path(OUTPUT_DIR, "cluster_days_to_50_percent.png"),
+#        p_days_to_50, width = 10, height = 6, dpi = 300, bg = "white")
 
 # ==================== EXPORT ANALYSIS 3 DATA ====================
 cat("--- Exporting Analysis 3 data to CSV ---\n")
@@ -898,8 +899,11 @@ p_closure <- ggplot(cluster_closure_protection,
     plot.background = element_rect(fill = "white", color = NA)
   )
 
-ggsave(file.path(OUTPUT_DIR, "cluster_front_end_closure_protection.png"),
-       p_closure, width = 12, height = 10, dpi = 300, bg = "white")
+# [trimmed: superseded by Fig 5 offset comparison] single-window closure plot
+# not exported. The cluster_closure_protection computation above is still used
+# by Analysis 5 / 6, so nothing downstream changes.
+# ggsave(file.path(OUTPUT_DIR, "cluster_front_end_closure_protection.png"),
+#        p_closure, width = 12, height = 10, dpi = 300, bg = "white")
 
 cat("✓ Figure saved\n")
 
@@ -1532,8 +1536,9 @@ p_faceted <- ggplot(mean_data_labeled,
     plot.background = element_rect(fill = "white", color = NA)
   )
 
-ggsave(file.path(OUTPUT_DIR, "cpue_vs_protection_by_cluster.png"),
-       p_faceted, width = 12, height = 10, dpi = 300, bg = "white")
+# [trimmed: variant of Fig 6] faceted CPUE-vs-protection plot not exported.
+# ggsave(file.path(OUTPUT_DIR, "cpue_vs_protection_by_cluster.png"),
+#        p_faceted, width = 12, height = 10, dpi = 300, bg = "white")
 
 cat("✓ Faceted plot saved\n")
 

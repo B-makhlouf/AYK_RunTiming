@@ -1,4 +1,0 @@
-Place KuskoUSGS_HUC_joined.shp here (with its sidecar files:
-.shp .shx .dbf .prj and any others), exactly as in the original "Spatial Data"
-folder. Expected attributes: iso_pred, isose_pred, Str_Order, mgmt_river,
-UniPh2oNoE, SPAWNING_C, Spawner_IP.

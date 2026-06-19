@@ -112,10 +112,11 @@ p <- ggplot(cpue_analysis, aes(x = doy, y = cpue)) +
   theme_minimal(base_size = 12) +
   theme(strip.text = element_text(face = "bold", size = 12))
 
-ggsave(file.path(output_dir, "cpue_curves_by_year_faceted.png"),
-       p, width = 10, height = 12, dpi = 300, bg = "white")
-
-cat("   ✓ Saved cpue_curves_by_year_faceted.png\n\n")
+# [trimmed: not a paper/cluster figure] CPUE curve figure not exported.
+# ggsave(file.path(output_dir, "cpue_curves_by_year_faceted.png"),
+#        p, width = 10, height = 12, dpi = 300, bg = "white")
+#
+# cat("   ✓ Saved cpue_curves_by_year_faceted.png\n\n")
 
 ################################################################################
 # SUMMARY

@@ -582,13 +582,13 @@ create_cumulative_plots <- function(cumulative_data, output_dir, watershed, inte
         panel.background = element_rect(fill = "white", color = NA)
       )
     
-    # Save combined plot
-    combined_filename <- paste0("run_timing_progress_", year, "_", watershed, ".png")
-    png(file.path(plot_dir, combined_filename), width = 18, height = 12, units = "in", res = 300, bg = "white")
-    grid.arrange(p_year, cpue_histogram, nrow = 2, heights = c(3, 1))
-    dev.off()
-    
-    message(paste("Created timing plot for", year))
+    # [trimmed: not a paper figure] per-year run-timing progress plots not exported.
+    # combined_filename <- paste0("run_timing_progress_", year, "_", watershed, ".png")
+    # png(file.path(plot_dir, combined_filename), width = 18, height = 12, units = "in", res = 300, bg = "white")
+    # grid.arrange(p_year, cpue_histogram, nrow = 2, heights = c(3, 1))
+    # dev.off()
+    #
+    # message(paste("Created timing plot for", year))
   }
   
   # Create overview faceted plot
@@ -645,8 +645,11 @@ create_cumulative_plots <- function(cumulative_data, output_dir, watershed, inte
       plot.margin = margin(15, 15, 15, 15, "mm")
     )
   
-  ggsave(file.path(plot_dir, paste0("cumulative_overview_", watershed, "_PAPER.png")), 
-         p1_faceted, width = 16, height = 20, dpi = 300, bg = "white")
+  # [trimmed: not the published Fig 4] management-unit cumulative overview is not
+  # exported. The published Fig 4 is the regional-group MULTIPANEL from R/06; the
+  # cumulative-distribution CSV intermediate is still written by R/03.
+  # ggsave(file.path(plot_dir, paste0("cumulative_overview_", watershed, "_PAPER.png")),
+  #        p1_faceted, width = 16, height = 20, dpi = 300, bg = "white")
   
   message("Created cumulative distribution plots")
 }

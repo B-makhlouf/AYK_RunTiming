@@ -13,7 +13,7 @@ run_isotope_clustering <- function() {
   library(dplyr)
   library(ggplot2)
   library(cluster)
-  library(factoextra)
+  # library(factoextra)  # removed: never used here; silhouette() comes from 'cluster'
   library(gridExtra)
   library(viridis)
   
@@ -313,6 +313,8 @@ run_isotope_clustering <- function() {
                                 ))
   
   # Save combined plot
+  # Clustering-results diagnostic: 4-panel (WSS elbow, silhouette score,
+  # variance explained, rate of improvement). KEPT.
   ggsave(
     filename = file.path(output_dir, "elbow_method_analysis_combined_upper_kusko.png"),
     plot = combined_plot,
@@ -422,15 +424,37 @@ run_isotope_clustering <- function() {
         legend.position = "right"
       )
     
-    ggsave(
-      filename = file.path(output_dir, 
-                           sprintf("clusters_k%d_combined_upper_kusko.png", k)),
-      plot = dist_plot,
-      width = 12,
-      height = 6,
-      dpi = 300,
-      bg = "white"
-    )
+    # [k = 6] BOXPLOTS of isotope values for each cluster (replaces histogram).
+    if (k == 6) {
+      iso_box <- ggplot(clustered_data,
+                        aes(x = cluster_ordered, y = iso_pred, fill = cluster_ordered)) +
+        geom_boxplot(alpha = 0.85, color = "gray20",
+                     outlier.alpha = 0.35, outlier.size = 0.8, linewidth = 0.5) +
+        scale_fill_viridis_d(option = "D") +
+        labs(
+          title = sprintf("Isotope values by cluster (k=%d)", k),
+          subtitle = sprintf("Using ALL %d isotope values - Upper Kusko includes S. Fork Kusko",
+                             nrow(isotope_data)),
+          x = "Cluster",
+          y = expression(paste(""^"87", "Sr/", ""^"86", "Sr")),
+          fill = "Cluster"
+        ) +
+        theme_minimal(base_size = 13) +
+        theme(
+          plot.title = element_text(face = "bold", size = 14),
+          plot.subtitle = element_text(size = 10, color = "grey50"),
+          legend.position = "none"
+        )
+      ggsave(
+        filename = file.path(output_dir,
+                             sprintf("cluster_isotope_boxplots_k%d_combined_upper_kusko.png", k)),
+        plot = iso_box,
+        width = 12,
+        height = 6,
+        dpi = 300,
+        bg = "white"
+      )
+    }
     
     cat(sprintf("✓ Saved distribution plot to: %s\n", 
                 file.path(output_dir, sprintf("clusters_k%d_combined_upper_kusko.png", k))))
@@ -525,14 +549,19 @@ run_isotope_clustering <- function() {
           plot.margin = margin(10, 10, 10, 10, "mm")
         )
       
-      ggsave(
-        filename = file.path(output_dir, sprintf("basin_map_k%d_combined_upper_kusko.png", k)),
-        plot = map_plot,
-        width = 12,
-        height = 10,
-        dpi = 300,
-        bg = "white"
-      )
+      # [trimmed: manuscript Fig 2B is a GIS basemap, not made here] regional-
+      # groups basin map not exported. The k = 6 cluster assignments it would be
+      # built from are still written to CSV below.
+      # if (k == 6) {
+      #   ggsave(
+      #     filename = file.path(output_dir, sprintf("basin_map_k%d_combined_upper_kusko.png", k)),
+      #     plot = map_plot,
+      #     width = 12,
+      #     height = 10,
+      #     dpi = 300,
+      #     bg = "white"
+      #   )
+      # }
       
       cat(sprintf("✓ Saved basin map to: %s\n", 
                   file.path(output_dir, sprintf("basin_map_k%d_combined_upper_kusko.png", k))))
@@ -630,15 +659,15 @@ run_isotope_clustering <- function() {
           plot.margin = margin(25, 25, 20, 25)
         )
       
-      # Save clean version
-      ggsave(
-        filename = file.path(output_dir, "isotope_violin_plot_k6_publication.png"),
-        plot = p_violin,
-        width = 12,
-        height = 7,
-        dpi = 600,
-        bg = "white"
-      )
+      # [trimmed: not a manuscript figure] publication violin not exported.
+      # ggsave(
+      #   filename = file.path(output_dir, "isotope_violin_plot_k6_publication.png"),
+      #   plot = p_violin,
+      #   width = 12,
+      #   height = 7,
+      #   dpi = 600,
+      #   bg = "white"
+      # )
       
       cat(sprintf("✓ Saved violin plot to: %s\n", 
                   file.path(output_dir, "isotope_violin_plot_k6_publication.png")))
@@ -656,14 +685,15 @@ run_isotope_clustering <- function() {
         scale_y_continuous(expand = expansion(mult = c(0.12, 0.05)))
       
       # Save annotated version
-      ggsave(
-        filename = file.path(output_dir, "isotope_violin_plot_k6_annotated.png"),
-        plot = p_violin_annotated,
-        width = 12,
-        height = 7,
-        dpi = 600,
-        bg = "white"
-      )
+      # [trimmed: variant of Fig 2B] annotated violin not exported.
+      # ggsave(
+      #   filename = file.path(output_dir, "isotope_violin_plot_k6_annotated.png"),
+      #   plot = p_violin_annotated,
+      #   width = 12,
+      #   height = 7,
+      #   dpi = 600,
+      #   bg = "white"
+      # )
       
       cat(sprintf("✓ Saved annotated violin plot to: %s\n", 
                   file.path(output_dir, "isotope_violin_plot_k6_annotated.png")))
@@ -725,14 +755,15 @@ run_isotope_clustering <- function() {
         )
       
       # Save horizontal version
-      ggsave(
-        filename = file.path(output_dir, "isotope_violin_plot_k6_horizontal.png"),
-        plot = p_violin_horizontal,
-        width = 10,
-        height = 8,
-        dpi = 600,
-        bg = "white"
-      )
+      # [trimmed: variant of Fig 2B] horizontal violin not exported.
+      # ggsave(
+      #   filename = file.path(output_dir, "isotope_violin_plot_k6_horizontal.png"),
+      #   plot = p_violin_horizontal,
+      #   width = 10,
+      #   height = 8,
+      #   dpi = 600,
+      #   bg = "white"
+      # )
       
       cat(sprintf("✓ Saved horizontal violin plot to: %s\n", 
                   file.path(output_dir, "isotope_violin_plot_k6_horizontal.png")))

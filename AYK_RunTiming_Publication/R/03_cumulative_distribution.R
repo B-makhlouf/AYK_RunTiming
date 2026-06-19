@@ -216,8 +216,8 @@ run_cumulative_analysis <- function(years = CONFIG$years,
     # Apply watershed ordering
     combined_run_duration <- apply_watershed_order(combined_run_duration, "mgmt_river", reverse_for_plots = TRUE)
     
-    # Create run duration range plot
-    create_run_duration_range_plot(combined_run_duration, output_dir, watersheds[1], interval_days)
+    # [trimmed: not a paper figure] run-duration range plot not exported.
+    # create_run_duration_range_plot(combined_run_duration, output_dir, watersheds[1], interval_days)
     
     # Calculate and display summary statistics
     duration_summary <- combined_run_duration %>%

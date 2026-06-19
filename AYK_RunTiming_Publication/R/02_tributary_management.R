@@ -101,18 +101,21 @@ run_tributary_analysis <- function(years = CONFIG$years,
         trib_filename <- glue("{watershed}_{year}_DOY_Q{q}.png")
         trib_path <- file.path(tributary_dir, trib_filename)
         
-        create_tributary_map(
-          basin = spatial_data$basin, 
-          edges = spatial_data$edges, 
-          basin_assign_norm = basin_assign_norm,
-          year = year, 
-          watershed = watershed, 
-          subset_label = quartile_data$labels[q], 
-          output_path = trib_path,
-          StreamOrderPrior = priors$StreamOrderPrior, 
-          pid_prior = priors$pid_prior,
-          gg_hist = gg_hist  # <- ADD HISTOGRAM HERE - THIS WAS MISSING!
-        )
+        # [trimmed: not a paper figure] per-year/quartile tributary production
+        # maps are not exported. The management-unit aggregation below still runs
+        # and writes management_river_analysis_tidy.csv (needed by step 06).
+        # create_tributary_map(
+        #   basin = spatial_data$basin,
+        #   edges = spatial_data$edges,
+        #   basin_assign_norm = basin_assign_norm,
+        #   year = year,
+        #   watershed = watershed,
+        #   subset_label = quartile_data$labels[q],
+        #   output_path = trib_path,
+        #   StreamOrderPrior = priors$StreamOrderPrior,
+        #   pid_prior = priors$pid_prior,
+        #   gg_hist = gg_hist
+        # )
         
         #----------------------------------------------------------------------
         # PROCESS MANAGEMENT RIVER DATA
@@ -125,10 +128,12 @@ run_tributary_analysis <- function(years = CONFIG$years,
           mgmt_filename <- glue("{watershed}_{year}_DOY_Q{q}_Management.png")
           mgmt_path <- file.path(mgmt_dir, mgmt_filename)
           
-          create_mgmt_river_map(
-            mgmt_result, spatial_data$edges, spatial_data$basin,
-            year, watershed, quartile_data$labels[q], mgmt_path, gg_hist
-          )
+          # [trimmed: not a paper figure] per-year/quartile management maps
+          # are not exported. Aggregation/CSV export below is unchanged.
+          # create_mgmt_river_map(
+          #   mgmt_result, spatial_data$edges, spatial_data$basin,
+          #   year, watershed, quartile_data$labels[q], mgmt_path, gg_hist
+          # )
           
           # Store results for CSV export
           year_results[[q]] <- list(
