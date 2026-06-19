@@ -1,0 +1,3 @@
+Place Kusko_basin.shp here (with its sidecar files: .shp .shx .dbf .prj),
+exactly as in the original isoscapes_new/Kusko folder. This is the basin
+outline polygon.
