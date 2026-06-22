@@ -227,101 +227,137 @@ if (st_crs(basin) != st_crs(combined_edges)) {
 color_limits <- c(0, max(combined_edges$production_proportion, na.rm = TRUE) * 1.1)
 cat("Color scale range:", round(color_limits[1], 3), "to", round(color_limits[2], 3), "\n")
 
-cat("\n--- Creating 4-panel boxplot figure ---\n")
+cat("\n--- Creating Figure 3a: contribution by group, faceted (free y) ---\n")
 
-# Create individual boxplot plots without titles
-# MODIFIED: Much larger label sizes for publication
-box_plots <- list()
-for (q in c("Q1", "Q2", "Q3", "Q4")) {
-  
-  q_data <- quartile_boxplot_data %>% filter(quartile_clean == q)
-  
-  # Determine if this is the leftmost panel (for y-axis label only)
-  show_y_label <- (q == "Q1")
-  
-  p_box <- ggplot(q_data, aes(x = within_quartile_pct, y = cluster_label)) +  # native horizontal (coord_flip renders empty in ggplot2 >= 3.5)
-    geom_boxplot(
-      orientation = "y",         # boxplots run along the discrete (cluster) axis
-      fill = "grey90",           # Lighter fill for better contrast
-      color = "grey40",          # Lighter outline so lines are less bold
-      alpha = 0.9,               # MORE OPAQUE
-      outlier.shape = 21,
-      outlier.fill = "grey90",
-      outlier.color = "grey40",  # Match lighter outline
-      outlier.size = 2.5,        # ORIGINAL SIZE (unchanged)
-      outlier.alpha = 0.9,
-      linewidth = 0.8,           # INCREASED from 0.6 - slightly bolder but still readable
-      fatten = 1.5               # REDUCED from 3 - thinner median line
-    ) +
-    # Custom scale with every other label displayed (10%, 30%, 50%)
-    scale_x_continuous(
-      labels = function(x) {
-        # Only show labels for 10%, 30%, 50% to avoid overcrowding
-        ifelse(x %in% c(10, 30, 50), paste0(x, "%"), "")
-      },
-      limits = c(0, 60),
-      breaks = seq(0, 60, by = 10),  # Gridlines every 10%
-      expand = expansion(mult = c(0, 0.02))
-    ) +
-    labs(
-      x = NULL,
-      y = NULL  # Remove individual panel labels
-    ) +
-    theme_minimal(base_size = 14, base_family = "sans") +
-    theme(
-      # PUBLICATION-READY: GREATLY INCREASED TEXT SIZES FOR LABELS ONLY
-      axis.title.x = element_blank(),  # No axis title (will use annotation instead)
-      axis.title.y = element_blank(),  # No axis title on y
-      # MODIFIED: Show only every other x-axis label (10%, 30%, 50%) to avoid overcrowding
-      axis.text.x = element_text(size = 24, color = "grey30", face = "bold", margin = margin(t = 12), angle = 0, hjust = 0.5),
-      axis.text.y = if(show_y_label) element_text(size = 26, color = "grey20", face = "bold") else element_blank(),
-      panel.grid.major.x = element_line(color = "grey90", linewidth = 0.5),
-      panel.grid.minor.x = element_blank(),
-      panel.grid.minor.y = element_blank(),
-      panel.grid.major.y = element_blank(),
-      plot.background = element_rect(fill = "white", color = NA),
-      panel.background = element_rect(fill = "white", color = NA),
-      panel.border = element_rect(color = "grey40", linewidth = 1),
-      axis.line = element_blank(),
-      plot.margin = margin(10, 20, 20, 10)  # INCREASED margins for larger text
-    )
-  
-  box_plots[[q]] <- p_box
-}
+# Group color palette (the same hues used for each group throughout the analysis)
+group_levels <- gsub("Cluster", "Group", cluster_order)        # "Group 1" ... "Group 6"
+group_colors <- setNames(cluster_colors, group_levels)         # named by Group label
 
-legend <- cowplot::get_legend(p_box)
+# Data for Figure 3a: x = seasonal quartile, y = within-quartile contribution (%),
+# one facet per group, boxplots capturing year-to-year variability.
+fig3a_data <- quartile_boxplot_data %>%
+  mutate(
+    quartile_clean = factor(quartile_clean, levels = c("Q1", "Q2", "Q3", "Q4")),
+    group_label    = factor(gsub("Cluster", "Group", cluster), levels = group_levels)
+  )
 
-# Combine into 4-panel layout (boxplots only, no maps)
 library(patchwork)
 
-four_panel <- (box_plots[["Q1"]] | box_plots[["Q2"]] | box_plots[["Q3"]] | box_plots[["Q4"]]) +
-  plot_layout(widths = c(1, 1, 1, 1))
+# Modern look: slim translucent boxes (no whisker staples, no separate outlier
+# glyphs) with the raw yearly points overlaid (un-jittered) in the group color.
+# Font sizes are deliberately large so the panel reads in a combined/publication
+# figure where each sub-plot is scaled down.
+fig3a <- ggplot(fig3a_data,
+                aes(x = quartile_clean, y = within_quartile_pct)) +
+  geom_boxplot(
+    aes(fill = group_label, color = group_label),
+    width = 0.55, alpha = 0.28, linewidth = 0.8,
+    outlier.shape = NA, staplewidth = 0, fatten = 1.6
+  ) +
+  geom_point(
+    aes(color = group_label),
+    size = 2.2, alpha = 0.8, stroke = 0
+  ) +
+  facet_wrap(~ group_label, scales = "free_y", ncol = 3) +   # 3 columns x 2 rows
+  scale_fill_manual(values = group_colors, guide = "none") +
+  scale_color_manual(values = group_colors, guide = "none") +
+  scale_y_continuous(labels = function(y) paste0(y, "%"),
+                     expand = expansion(mult = c(0.05, 0.10))) +
+  labs(x = "Seasonal quartile", y = "Proportional contribution within quartile") +
+  theme_minimal(base_size = 20, base_family = "sans") +
+  theme(
+    strip.text         = element_text(size = 24, face = "bold", color = "grey20", hjust = 0),
+    strip.background   = element_blank(),
+    axis.title         = element_text(size = 24, face = "bold", color = "grey25"),
+    axis.title.x       = element_text(margin = margin(t = 14)),
+    axis.title.y       = element_text(margin = margin(r = 14)),
+    axis.text.x        = element_text(size = 20, color = "grey30"),
+    axis.text.y        = element_text(size = 18, color = "grey35"),
+    panel.grid.minor   = element_blank(),
+    panel.grid.major.x = element_blank(),
+    panel.grid.major.y = element_line(color = "grey92", linewidth = 0.6),
+    panel.spacing      = unit(1.8, "lines"),
+    plot.background    = element_rect(fill = "white", color = NA),
+    panel.background   = element_rect(fill = "white", color = NA),
+    plot.margin        = margin(16, 18, 16, 16)
+  )
 
-# Combine with legend
-final_plot <- cowplot::plot_grid(four_panel, legend, rel_widths = c(1, 0.08))
+ggsave(file.path(OUTPUT_DIR, paste0("Figure3a_contribution_by_group_faceted_", year_range, ".png")),
+       fig3a, width = 15, height = 9, dpi = 300, bg = "white")
 
-# Add a single centered "Production (%)" label at the bottom using annotation
-final_plot_with_label <- cowplot::plot_grid(
-  final_plot,
-  NULL,  # Spacer
-  grid::textGrob("Proportional contribution", gp = grid::gpar(fontsize = 28, fontface = "bold", col = "grey20")),
-  ncol = 1,
-  rel_heights = c(1, 0.05, 0.08),  # Adjust spacing as needed
-  align = "hv"
-)
+cat("✓ Figure 3a (faceted by group) saved\n")
+cat("  Facets: one per group (Group 1-6), 3 columns x 2 rows, free y-axes\n")
+cat("  X-axis: seasonal quartiles (Q1-Q4); boxplots + yearly points (un-jittered)\n")
+cat("  Colors: per-group palette\n\n")
 
-# OUTPUT SIZE optimized for wider 4-panel boxplot figure with square boxes
-ggsave(file.path(OUTPUT_DIR, paste0("Four_Panel_Boxplots_", year_range, ".png")), 
-       final_plot_with_label, width = 21, height = 6, dpi = 300, bg = "white")
 
-cat("✓ 4-panel boxplot figure saved\n")
-cat("  Figure size: 28 x 10 inches (wider and taller with bolder outlines)\n")
-cat("  Panels: Q1, Q2, Q3, Q4 (boxplots only, no maps)\n")
-cat("  X-axis label: Single centered \"Production (%)\" label at bottom\n")
-cat("  Boxplot appearance: Square boxes with slightly bolder outlines, readable lines\n")
-cat("  Boxplot outline thickness: 0.8 (slightly bolder for definition)\n")
-cat("  Boxplot label sizes: 24-28pt\n")
-cat("  Panel labels: 10%, 30%, 50%\n\n")
+# ----------------------------------------------------------------------------
+# FIGURE 3b: stacked bar of each group's contribution to the full annual run
+# ----------------------------------------------------------------------------
+cat("\n--- Creating Figure 3b: stacked group contribution to annual run by year ---\n")
+
+# Each group's share of the full year's run = total_run_prop summed over the
+# group's rivers across all quartiles, renormalized to sum to 100% per year
+# across the clustered groups (matching the within-quartile group set).
+fig3b_data <- mgmt_data %>%
+  group_by(year, cluster) %>%
+  summarise(group_run_prop = sum(total_run_prop, na.rm = TRUE), .groups = "drop") %>%
+  group_by(year) %>%
+  mutate(group_pct = 100 * group_run_prop / sum(group_run_prop)) %>%
+  ungroup() %>%
+  mutate(group_label = factor(gsub("Cluster", "Group", cluster), levels = group_levels))
+
+fig3b <- ggplot(fig3b_data,
+                aes(x = factor(year), y = group_pct, fill = group_label)) +
+  geom_col(width = 0.72, color = "white", linewidth = 0.4,
+           position = position_stack(reverse = TRUE)) +
+  scale_fill_manual(values = group_colors, breaks = group_levels, name = NULL) +
+  scale_y_continuous(labels = function(y) paste0(y, "%"),
+                     expand = expansion(mult = c(0, 0.02))) +
+  labs(x = "Year", y = "Proportional contribution to annual run") +
+  theme_minimal(base_size = 20, base_family = "sans") +
+  theme(
+    axis.title         = element_text(size = 24, face = "bold", color = "grey20"),
+    axis.title.x       = element_text(margin = margin(t = 12)),
+    axis.title.y       = element_text(margin = margin(r = 12)),
+    axis.text          = element_text(size = 20, color = "grey25"),
+    legend.text        = element_text(size = 20, color = "grey20"),
+    legend.key.size    = unit(1.3, "lines"),
+    panel.grid.minor   = element_blank(),
+    panel.grid.major.x = element_blank(),
+    panel.grid.major.y = element_line(color = "grey90", linewidth = 0.6),
+    plot.background    = element_rect(fill = "white", color = NA),
+    panel.background   = element_rect(fill = "white", color = NA),
+    plot.margin        = margin(16, 16, 16, 16)
+  )
+
+ggsave(file.path(OUTPUT_DIR, paste0("Figure3b_group_contribution_stacked_", year_range, ".png")),
+       fig3b, width = 10, height = 7, dpi = 300, bg = "white")
+
+cat("✓ Figure 3b (stacked group contribution by year) saved\n")
+cat("  X-axis: year; stacked bars sum to 100% per year\n")
+cat("  Segments colored by per-group palette\n\n")
+
+
+# ----------------------------------------------------------------------------
+# FIGURE 3_QuartileCont: combined one-row figure (3a | 3b) for the manuscript
+# ----------------------------------------------------------------------------
+cat("\n--- Creating Figure 3_QuartileCont: combined 3a + 3b (one row) ---\n")
+
+fig3_combined <- (fig3a | fig3b) +
+  plot_layout(widths = c(1.7, 1)) +              # 3a (6 facets) wider than 3b
+  plot_annotation(
+    tag_levels = list(c("A", "B")),
+    theme = theme(plot.background = element_rect(fill = "white", color = NA))
+  ) &
+  theme(plot.tag = element_text(size = 30, face = "bold", color = "grey15"))
+
+ggsave(file.path(OUTPUT_DIR, paste0("Figure3_QuartileCont_", year_range, ".png")),
+       fig3_combined, width = 26, height = 9.5, dpi = 300, bg = "white")
+
+cat("✓ Figure 3_QuartileCont (combined one-row figure) saved\n")
+cat("  Panel A: faceted boxplots by group; Panel B: stacked annual contribution\n")
+cat("  Large labels/axes sized for publication\n\n")
 
 # ==================== EXPORT ANALYSIS 1 DATA ====================
 cat("--- Exporting Analysis 1 data to CSV ---\n")
@@ -364,13 +400,11 @@ write_csv(cluster_median_values,
           file.path(CSV_DIR, "analysis1_cluster_median_values_for_maps.csv"))
 
 cat("=== ANALYSIS 1 COMPLETE ===\n")
-cat("Created: 1 four-panel boxplot figure (Q1, Q2, Q3, Q4)\n")
+cat("Created: Figure 3a (faceted by group, free y) + Figure 3b (stacked by year)\n")
 cat("Exported: 5 CSV files\n")
-cat("MODIFICATIONS:\n")
-cat("  - Publication-ready label sizes (24-28pt)\n")
-cat("  - Every other x-axis label shown (10%, 30%, 50%)\n")
-cat("  - Figure dimensions: 16 x 8 inches\n")
-cat("  - Maps removed (boxplots only)\n\n")
+cat("FIGURE DESIGN:\n")
+cat("  - Figure 3a: facet per group (3 x 2), x = seasonal quartile, free y-axes, group colors\n")
+cat("  - Figure 3b: stacked bar per year of each group's share of the annual run\n\n")
 
 
 ################################################################################

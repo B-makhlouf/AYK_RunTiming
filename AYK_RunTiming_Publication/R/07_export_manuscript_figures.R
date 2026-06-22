@@ -4,7 +4,9 @@
 # Collects the final figures into a clean, paper-ordered Figures/ folder:
 #
 #   Figures/                         <- manuscript figures, named in paper order
-#     Figure3_proportional_contribution_by_quartile.png   (R/06 Analysis 1)
+#     Figure3_QuartileCont.png             (R/06 Analysis 1, combined 3a+3b)
+#     Figure3a_contribution_by_group_faceted.png          (R/06 Analysis 1)
+#     Figure3b_group_contribution_stacked.png             (R/06 Analysis 1)
 #     Figure4_cumulative_distribution_by_group.png        (R/06 Analysis 2)
 #     Figure5_closure_protection_by_offset.png            (R/06 Analysis 5)
 #     Figure6_protection_vs_foregone_harvest.png          (R/06 Analysis 6)
@@ -25,8 +27,12 @@ dir.create(CLUSTERING_FIGURES_DIR, recursive = TRUE, showWarnings = FALSE)
 year_range <- paste0(min(CFG$years), "-", max(CFG$years))
 
 manuscript_figs <- list(
-  list(dest = "Figure3_proportional_contribution_by_quartile.png",
-       src  = file.path(CLUSTER_ANALYSIS_DIR, paste0("Four_Panel_Boxplots_", year_range, ".png"))),
+  list(dest = "Figure3_QuartileCont.png",
+       src  = file.path(CLUSTER_ANALYSIS_DIR, paste0("Figure3_QuartileCont_", year_range, ".png"))),
+  list(dest = "Figure3a_contribution_by_group_faceted.png",
+       src  = file.path(CLUSTER_ANALYSIS_DIR, paste0("Figure3a_contribution_by_group_faceted_", year_range, ".png"))),
+  list(dest = "Figure3b_group_contribution_stacked.png",
+       src  = file.path(CLUSTER_ANALYSIS_DIR, paste0("Figure3b_group_contribution_stacked_", year_range, ".png"))),
   list(dest = "Figure4_cumulative_distribution_by_group.png",
        src  = file.path(CLUSTER_ANALYSIS_DIR, "cluster_cumulative_distribution_MULTIPANEL.png")),
   list(dest = "Figure5_closure_protection_by_offset.png",

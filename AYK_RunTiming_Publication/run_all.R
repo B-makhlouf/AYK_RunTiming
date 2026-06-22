@@ -53,6 +53,12 @@ source("R/06_cluster_analysis.R")
 # Figures/Figure3_*.png .. Figure6_*.png  and  Figures/Clustering/*.png
 source("R/07_export_manuscript_figures.R")
 
+# ---- Stage 7: interannual run-timing variability by group (DOY-at-50% CV) -----
+# Standalone, additive analysis. Reads the cumulative-distribution CSV from
+# Stage 2 and writes outputs/DOY50_Variability/CSV/. Does not affect any other
+# stage or figure.
+source("R/08_doy50_variability.R")
+
 # ---- Done --------------------------------------------------------------------
 elapsed <- round(difftime(Sys.time(), t_start, units = "mins"), 2)
 cat("\n================================================================\n")
