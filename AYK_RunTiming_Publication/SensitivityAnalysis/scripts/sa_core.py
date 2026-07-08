@@ -33,14 +33,15 @@ def load_edges():
     r = shapefile.Reader(EDGES_SHP)
     flds = [f[0] for f in r.fields[1:]]
     idx = {n: i for i, n in enumerate(flds)}
-    cols = ["iso_pred", "isose_pred", "Str_Order", "UniPh2oNoE", "SPAWNING_C", "mgmt_river"]
+    cols = ["iso_pred", "isose_pred", "Str_Order", "UniPh2oNoE", "SPAWNING_C", "mgmt_river", "Shape_Leng"]
     rows = [[rec[idx[c]] for c in cols] for rec in r.iterRecords()]
     df = pd.DataFrame(rows, columns=cols)
-    for c in ["iso_pred", "isose_pred", "Str_Order", "UniPh2oNoE", "SPAWNING_C"]:
+    for c in ["iso_pred", "isose_pred", "Str_Order", "UniPh2oNoE", "SPAWNING_C", "Shape_Leng"]:
         df[c] = pd.to_numeric(df[c], errors="coerce")
     df["mgmt_river"] = df["mgmt_river"].astype(str).str.strip()
     df = df[df["Str_Order"] >= MIN_STREAM_ORDER].reset_index(drop=True)
     df.loc[df["mgmt_river"] == "Johnson", "mgmt_river"] = "Lower Kusko"
+    df["length_km"] = df["Shape_Leng"] / 1000.0
     df["StreamOrderPrior"] = 1.0
     df["PresencePrior"] = np.where(df["Str_Order"].isin([6, 7, 8]) & (df["SPAWNING_C"] == 0), 0.0, 1.0)
     df["pid_prior"] = df["UniPh2oNoE"].astype(float)

@@ -17,23 +17,20 @@ So every number here is reproducible from, and consistent with, the published pi
 
 ## 1. Individual assignment concentration  →  `1_Individual_Assignment_Concentration/`
 
-**Question:** After the 0.7 cutoff, how much of each *individual fish's* assignment
-falls in a single regional group? (i.e. is each fish resolved to one group, or smeared
-across several?)
+**Question:** After the 0.7 cutoff, how much of the total stream length (km) of each
+*individual fish's* assignment lies within a single regional group?
 
-**How:** For every fish we take its 0.7-thresholded assignment across all stream edges,
-map edges to the six regional groups, sum the assignment mass in each group, and take the
-largest group's share of the fish's total assignment.
+**How:** A stream edge belongs to a fish's assignment if it survives the 0.7 threshold.
+Each retained edge contributes its full length (km). For every fish we sum the assigned
+length in each of the six groups and take the largest group's share of the fish's total
+assigned length. This is length-weighted, not posterior-weighted.
 
-**Headline result (n = 1,465 fish):** on average **62%** of an individual's assignment
-falls in its single dominant regional group (median 62%; interquartile range 51–69%).
-**79.7%** of fish have ≥50% of their assignment in one group; 22% have ≥70%. Almost none
-of the assignment mass (mean 0.24%) falls outside the six groups, so this is genuinely a
-statement about concentration *among* the groups, not about lower-river leakage. On
-average each fish's assignment still touches ~4.3 of the 6 groups at some level, which is
-why the dominant-group share sits near 60% rather than near 100% — individual otolith
-assignments are informative but not point-precise, which is exactly why the paper
-aggregates to regional groups and to run-timing quartiles.
+**Headline result (n = 1,465 fish):** on average **64%** of an individual's assigned
+stream length falls in its single dominant regional group (median 66%; IQR 55–72%).
+**84% of fish** have ≥50% of their assigned kilometres in one group, and 30% have ≥70%.
+Only ~0.2% of assigned length lies outside the six groups, and the average assignment
+spans ~4.3 of the 6 groups — individual assignments concentrate in one region but still
+cover neighbouring stream network, which is why the paper aggregates to regional groups.
 
 ## 2. Threshold sensitivity  →  `2_Threshold_Sensitivity/`
 
