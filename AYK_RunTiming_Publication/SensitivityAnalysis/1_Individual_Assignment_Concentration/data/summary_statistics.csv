@@ -1,0 +1,17 @@
+,value
+n_individuals,1465
+metric,proportion of each fish's assignment in its single dominant regional group
+PRIMARY_within_grouped_mean,0.6213
+PRIMARY_within_grouped_median,0.6234
+PRIMARY_within_grouped_q25,0.5144
+PRIMARY_within_grouped_q75,0.6915
+PRIMARY_within_grouped_min,0.3718
+pct_fish_dominant>=0.5_grouped,79.7
+pct_fish_dominant>=0.7_grouped,22.1
+pct_fish_dominant>=0.9_grouped,4.6
+pct_fish_dominant==1.0_grouped,0.8
+SECONDARY_of_all_mass_mean,0.62
+SECONDARY_of_all_mass_median,0.6229
+mean_prop_outside_groups,0.0024
+mean_n_groups_with_mass,4.325
+mean_n_stream_edges_retained,2178.9

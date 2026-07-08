@@ -10,6 +10,7 @@
 #     Figure4_cumulative_distribution_by_group.png        (R/06 Analysis 2)
 #     Figure5_closure_protection_by_offset.png            (R/06 Analysis 5)
 #     Figure6_protection_vs_foregone_harvest.png          (R/06 Analysis 6)
+#     Figure_6_ALT.png                                     (R/06 Analysis 6, axes flipped + 1:1 line)
 #   Figures/Clustering/              <- clustering-results figures
 #     cluster_selection_elbow_silhouette.png   (4-panel incl. silhouette score)
 #     isotope_value_boxplots_by_cluster.png    (boxplots of values per cluster)
@@ -38,7 +39,9 @@ manuscript_figs <- list(
   list(dest = "Figure5_closure_protection_by_offset.png",
        src  = file.path(CLUSTER_ANALYSIS_DIR, "cluster_front_end_closure_protection_comparison.png")),
   list(dest = "Figure6_protection_vs_foregone_harvest.png",
-       src  = file.path(CLUSTER_ANALYSIS_DIR, "cpue_vs_protection_combined.png"))
+       src  = file.path(CLUSTER_ANALYSIS_DIR, "cpue_vs_protection_combined.png")),
+  list(dest = "Figure_6_ALT.png",
+       src  = file.path(CLUSTER_ANALYSIS_DIR, "cpue_vs_protection_combined_ALT.png"))
 )
 
 clustering_figs <- list(

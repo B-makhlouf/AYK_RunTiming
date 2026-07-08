@@ -1519,6 +1519,71 @@ ggsave(file.path(OUTPUT_DIR, "cpue_vs_protection_combined.png"),
 
 cat("✓ Combined plot saved\n")
 
+# Version 1-ALT: Same combined plot with X and Y axes swapped
+# (mean foregone harvest on the Y axis, protection effectiveness on the X axis)
+# plus a grey dashed 1:1 reference line.
+cat("Creating combined ALT plot (axes flipped, with 1:1 line)...\n")
+
+p_combined_alt <- ggplot(mean_data,
+                         aes(x = mean_protection,
+                             y = mean_cpue_foregone,
+                             color = cluster,
+                             group = cluster)) +
+  geom_abline(slope = 1, intercept = 0,
+              color = "grey60", linetype = "dashed", linewidth = 1) +
+  geom_line(linewidth = 1.5, alpha = 0.6) +
+  geom_point(size = 6, alpha = 0.6,
+             stroke = 2, shape = 21, aes(fill = cluster), color = "black") +
+  geom_text(data = mean_data %>%
+              group_by(offset_label) %>%
+              filter(mean_protection == max(mean_protection)),  # Label topmost-protection point in each scenario
+            aes(label = offset_short),
+            vjust = -1.2, hjust = 0.5, size = 6,
+            show.legend = FALSE, fontface = "bold",
+            color = "black") +
+  scale_color_manual(values = cluster_colors, name = "Group",
+                     labels = paste0("Group ", 1:6)) +
+  scale_fill_manual(values = cluster_colors, name = "Group",
+                    labels = paste0("Group ", 1:6)) +
+  guides(color = guide_legend(title = "Group"),
+         fill = guide_legend(title = "Group")) +
+  scale_x_continuous(
+    name = "Mean Protection Effectiveness (%)",
+    labels = function(x) paste0(round(x, 0), "%"),
+    breaks = seq(0, 55, by = 10),
+    limits = c(0, 55),
+    expand = c(0, 0)
+  ) +
+  scale_y_continuous(
+    name = "Mean foregone harvest opportunity (%)",
+    labels = function(x) paste0(round(x, 0), "%"),
+    breaks = seq(0, 30, by = 5),
+    limits = c(0, 30),
+    expand = c(0, 0)
+  ) +
+  coord_fixed(ratio = 1) +   # Equal spacing: 10% on x == 10% on y (1:1 line is 45 degrees)
+  theme_minimal(base_size = 18) +
+  theme(
+    legend.position = c(0.98, 0.02),
+    legend.justification = c(1, 0),
+    legend.title = element_text(face = "bold", size = 20),
+    legend.text = element_text(face = "bold", size = 18),
+    legend.background = element_rect(fill = "white", color = "black", linewidth = 0.5),
+    axis.title = element_text(face = "bold", size = 20),
+    axis.text = element_text(face = "bold", size = 18),
+    axis.line = element_line(color = "black", linewidth = 1),
+    panel.grid.major = element_line(color = "grey80", linewidth = 0.5),
+    panel.grid.minor = element_blank(),
+    panel.border = element_blank(),
+    plot.background = element_rect(fill = "white", color = NA),
+    plot.margin = margin(10, 10, 10, 10)
+  )
+
+ggsave(file.path(OUTPUT_DIR, "cpue_vs_protection_combined_ALT.png"),
+       p_combined_alt, width = 12, height = 7.6, dpi = 300, bg = "white")
+
+cat("✓ Combined ALT plot saved\n")
+
 # Version 2: Faceted by cluster
 cat("Creating faceted plot by cluster...\n")
 
