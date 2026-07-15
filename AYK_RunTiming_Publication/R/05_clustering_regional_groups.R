@@ -401,7 +401,7 @@ run_isotope_clustering <- function() {
     clustered_data$cluster_ordered <- factor(
       clustered_data$cluster,
       levels = cluster_stats$cluster,
-      labels = paste0("Cluster ", cluster_stats$cluster, "\n(μ=", 
+      labels = paste0("Regional group ", cluster_stats$cluster, "\n(μ=",
                       round(cluster_stats$mean_iso, 3), ")")
     )
     
@@ -432,10 +432,8 @@ run_isotope_clustering <- function() {
                      outlier.alpha = 0.35, outlier.size = 0.8, linewidth = 0.5) +
         scale_fill_viridis_d(option = "D") +
         labs(
-          title = sprintf("Isotope values by cluster (k=%d)", k),
-          subtitle = sprintf("Using ALL %d isotope values - Upper Kusko includes S. Fork Kusko",
-                             nrow(isotope_data)),
-          x = "Cluster",
+          title = "Isotope range by regional group",
+          x = "Regional group",
           y = expression(paste(""^"87", "Sr/", ""^"86", "Sr")),
           fill = "Cluster"
         ) +

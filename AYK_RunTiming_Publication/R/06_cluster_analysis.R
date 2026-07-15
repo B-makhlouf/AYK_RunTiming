@@ -310,7 +310,7 @@ fig3b_data <- mgmt_data %>%
 fig3b <- ggplot(fig3b_data,
                 aes(x = factor(year), y = group_pct, fill = group_label)) +
   geom_col(width = 0.72, color = "white", linewidth = 0.4,
-           position = position_stack(reverse = TRUE)) +
+           position = position_stack(reverse = FALSE)) +
   scale_fill_manual(values = group_colors, breaks = group_levels, name = NULL) +
   scale_y_continuous(labels = function(y) paste0(y, "%"),
                      expand = expansion(mult = c(0, 0.02))) +
@@ -340,12 +340,62 @@ cat("  Segments colored by per-group palette\n\n")
 
 
 # ----------------------------------------------------------------------------
+# FIGURE 3b_Q1: stacked bar of each group's contribution to the Q1 run only
+# ----------------------------------------------------------------------------
+# Identical to Figure 3b, but restricted to the first seasonal quartile (Q1).
+# Each group's share of the Q1 run = total_run_prop summed over the group's
+# rivers within Q1, renormalized to sum to 100% per year across the clustered
+# groups.
+cat("\n--- Creating Figure 3b_Q1: stacked group contribution to Q1 run by year ---\n")
+
+fig3b_q1_data <- mgmt_data %>%
+  filter(quartile_clean == "Q1") %>%
+  group_by(year, cluster) %>%
+  summarise(group_run_prop = sum(total_run_prop, na.rm = TRUE), .groups = "drop") %>%
+  group_by(year) %>%
+  mutate(group_pct = 100 * group_run_prop / sum(group_run_prop)) %>%
+  ungroup() %>%
+  mutate(group_label = factor(gsub("Cluster", "Group", cluster), levels = group_levels))
+
+fig3b_q1 <- ggplot(fig3b_q1_data,
+                aes(x = factor(year), y = group_pct, fill = group_label)) +
+  geom_col(width = 0.72, color = "white", linewidth = 0.4,
+           position = position_stack(reverse = FALSE)) +
+  scale_fill_manual(values = group_colors, breaks = group_levels, name = NULL) +
+  scale_y_continuous(labels = function(y) paste0(y, "%"),
+                     expand = expansion(mult = c(0, 0.02))) +
+  labs(x = "Year", y = "Proportional contribution to Q1 run") +
+  theme_minimal(base_size = 20, base_family = "sans") +
+  theme(
+    axis.title         = element_text(size = 24, face = "bold", color = "grey20"),
+    axis.title.x       = element_text(margin = margin(t = 12)),
+    axis.title.y       = element_text(margin = margin(r = 12)),
+    axis.text          = element_text(size = 20, color = "grey25"),
+    legend.text        = element_text(size = 20, color = "grey20"),
+    legend.key.size    = unit(1.3, "lines"),
+    panel.grid.minor   = element_blank(),
+    panel.grid.major.x = element_blank(),
+    panel.grid.major.y = element_line(color = "grey90", linewidth = 0.6),
+    plot.background    = element_rect(fill = "white", color = NA),
+    panel.background   = element_rect(fill = "white", color = NA),
+    plot.margin        = margin(16, 16, 16, 16)
+  )
+
+ggsave(file.path(OUTPUT_DIR, paste0("Figure3b_Q1_group_contribution_stacked_", year_range, ".png")),
+       fig3b_q1, width = 10, height = 7, dpi = 300, bg = "white")
+
+cat("✓ Figure 3b_Q1 (stacked Q1 group contribution by year) saved\n")
+cat("  X-axis: year; stacked bars sum to 100% of the Q1 run per year\n")
+cat("  Segments colored by per-group palette\n\n")
+
+
+# ----------------------------------------------------------------------------
 # FIGURE 3_QuartileCont: combined one-row figure (3a | 3b) for the manuscript
 # ----------------------------------------------------------------------------
 cat("\n--- Creating Figure 3_QuartileCont: combined 3a + 3b (one row) ---\n")
 
-fig3_combined <- (fig3a | fig3b) +
-  plot_layout(widths = c(1.7, 1)) +              # 3a (6 facets) wider than 3b
+fig3_combined <- (fig3a | fig3b_q1) +
+  plot_layout(widths = c(1.7, 1)) +              # 3a (6 facets) wider than 3b_q1
   plot_annotation(
     tag_levels = list(c("A", "B")),
     theme = theme(plot.background = element_rect(fill = "white", color = NA))
@@ -356,7 +406,7 @@ ggsave(file.path(OUTPUT_DIR, paste0("Figure3_QuartileCont_", year_range, ".png")
        fig3_combined, width = 26, height = 9.5, dpi = 300, bg = "white")
 
 cat("✓ Figure 3_QuartileCont (combined one-row figure) saved\n")
-cat("  Panel A: faceted boxplots by group; Panel B: stacked annual contribution\n")
+cat("  Panel A: faceted boxplots by group; Panel B: stacked Q1 contribution by year\n")
 cat("  Large labels/axes sized for publication\n\n")
 
 # ==================== EXPORT ANALYSIS 1 DATA ====================
@@ -587,7 +637,7 @@ p_multi <- ggplot() +
   labs(
     title = "Cumulative distribution vs. Time",
     x = "Date",
-    y = "Cumulative Percent of Group's Total Production",
+    y = "Cumulative Percent of Total Relative Abundance by Group",
     color = "Group"
   ) +
   
@@ -1218,7 +1268,7 @@ p_comparison <- ggplot() +
     expand = expansion(mult = c(0.02, 0.02))
   ) +
   scale_y_continuous(
-    name = "Protection Effectiveness (%)",
+    name = "Percent of Relative Abundance Protected",
     labels = function(x) paste0(round(x, 0), "%"),
     expand = expansion(mult = c(0.1, 0.05)),
     limits = c(-3, NA)
@@ -1519,14 +1569,13 @@ ggsave(file.path(OUTPUT_DIR, "cpue_vs_protection_combined.png"),
 
 cat("✓ Combined plot saved\n")
 
-# Version 1-ALT: Same combined plot with X and Y axes swapped
-# (mean foregone harvest on the Y axis, protection effectiveness on the X axis)
-# plus a grey dashed 1:1 reference line.
-cat("Creating combined ALT plot (axes flipped, with 1:1 line)...\n")
+# Version 1-ALT: Identical to the combined plot above (same layout, legend
+# position, and 10x10 dimensions) but with a grey dashed 1:1 reference line added.
+cat("Creating combined ALT plot (same as original, with 1:1 line)...\n")
 
 p_combined_alt <- ggplot(mean_data,
-                         aes(x = mean_protection,
-                             y = mean_cpue_foregone,
+                         aes(x = mean_cpue_foregone,
+                             y = mean_protection,
                              color = cluster,
                              group = cluster)) +
   geom_abline(slope = 1, intercept = 0,
@@ -1548,24 +1597,23 @@ p_combined_alt <- ggplot(mean_data,
   guides(color = guide_legend(title = "Group"),
          fill = guide_legend(title = "Group")) +
   scale_x_continuous(
-    name = "Mean Protection Effectiveness (%)",
-    labels = function(x) paste0(round(x, 0), "%"),
-    breaks = seq(0, 55, by = 10),
-    limits = c(0, 55),
-    expand = c(0, 0)
-  ) +
-  scale_y_continuous(
     name = "Mean foregone harvest opportunity (%)",
     labels = function(x) paste0(round(x, 0), "%"),
     breaks = seq(0, 30, by = 5),
     limits = c(0, 30),
     expand = c(0, 0)
   ) +
-  coord_fixed(ratio = 1) +   # Equal spacing: 10% on x == 10% on y (1:1 line is 45 degrees)
+  scale_y_continuous(
+    name = "Mean Protection Effectiveness (%)",
+    labels = function(x) paste0(round(x, 0), "%"),
+    breaks = seq(0, 55, by = 10),
+    limits = c(0, 55),
+    expand = c(0, 0)
+  ) +
   theme_minimal(base_size = 18) +
   theme(
-    legend.position = c(0.98, 0.02),
-    legend.justification = c(1, 0),
+    legend.position = c(0.02, 0.98),
+    legend.justification = c(0, 1),
     legend.title = element_text(face = "bold", size = 20),
     legend.text = element_text(face = "bold", size = 18),
     legend.background = element_rect(fill = "white", color = "black", linewidth = 0.5),
@@ -1580,7 +1628,7 @@ p_combined_alt <- ggplot(mean_data,
   )
 
 ggsave(file.path(OUTPUT_DIR, "cpue_vs_protection_combined_ALT.png"),
-       p_combined_alt, width = 12, height = 7.6, dpi = 300, bg = "white")
+       p_combined_alt, width = 10, height = 10, dpi = 300, bg = "white")
 
 cat("✓ Combined ALT plot saved\n")
 
