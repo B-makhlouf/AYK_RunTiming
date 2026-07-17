@@ -232,6 +232,9 @@ cat("\n--- Creating Figure 3a: contribution by group, faceted (free y) ---\n")
 # Group color palette (the same hues used for each group throughout the analysis)
 group_levels <- gsub("Cluster", "Group", cluster_order)        # "Group 1" ... "Group 6"
 group_colors <- setNames(cluster_colors, group_levels)         # named by Group label
+# Darken Group 4 slightly (was skyblue #87CEEB) so it reads against a white
+# background. Scoped to Figure 3 only (group_colors is used solely by Fig 3a/3b).
+group_colors["Group 4"] <- "#4FA3D1"
 
 # Data for Figure 3a: x = seasonal quartile, y = within-quartile contribution (%),
 # one facet per group, boxplots capturing year-to-year variability.
@@ -314,7 +317,7 @@ fig3b <- ggplot(fig3b_data,
   scale_fill_manual(values = group_colors, breaks = group_levels, name = NULL) +
   scale_y_continuous(labels = function(y) paste0(y, "%"),
                      expand = expansion(mult = c(0, 0.02))) +
-  labs(x = "Year", y = "Proportional contribution to annual run") +
+  labs(x = "Year", y = "Proportional contribution to annual") +
   theme_minimal(base_size = 20, base_family = "sans") +
   theme(
     axis.title         = element_text(size = 24, face = "bold", color = "grey20"),
@@ -364,7 +367,7 @@ fig3b_q1 <- ggplot(fig3b_q1_data,
   scale_fill_manual(values = group_colors, breaks = group_levels, name = NULL) +
   scale_y_continuous(labels = function(y) paste0(y, "%"),
                      expand = expansion(mult = c(0, 0.02))) +
-  labs(x = "Year", y = "Proportional contribution to Q1 run") +
+  labs(x = "Year", y = "Proportional contribution to Q1") +
   theme_minimal(base_size = 20, base_family = "sans") +
   theme(
     axis.title         = element_text(size = 24, face = "bold", color = "grey20"),
@@ -637,7 +640,7 @@ p_multi <- ggplot() +
   labs(
     title = "Cumulative distribution vs. Time",
     x = "Date",
-    y = "Cumulative Percent of Total Relative Abundance by Group",
+    y = "Cumulative Percent of Total Relative Abundance",
     color = "Group"
   ) +
   
@@ -1261,7 +1264,7 @@ p_comparison <- ggplot() +
   scale_fill_manual(values = cluster_color_mapping, name = "Group",
                     labels = function(x) gsub("Cluster", "Group", x)) +
   scale_x_continuous(
-    name = "Group",
+    name = NULL,
     breaks = 1:6,
     labels = paste0("Group ", 1:6),
     limits = c(0.5, 6.5),
@@ -1285,7 +1288,7 @@ p_comparison <- ggplot() +
     panel.grid.minor = element_blank(),
     panel.grid.major.x = element_blank(),
     panel.grid.major.y = element_line(color = "gray90", linewidth = 0.4),
-    legend.position = "right",
+    legend.position = "none",
     legend.title = element_text(face = "bold", size = 12),
     legend.text = element_text(size = 11),
     axis.text = element_text(size = 11, color = "gray20"),
@@ -1535,14 +1538,14 @@ p_combined <- ggplot(mean_data,
          fill = guide_legend(title = "Group")) +
   scale_x_continuous(
     name = "Mean foregone harvest opportunity (%)",
-    labels = function(x) paste0(round(x, 0), "%"),
+    labels = function(x) round(x, 0),
     breaks = seq(0, 30, by = 5),
     limits = c(0, 30),
     expand = c(0, 0)
   ) +
   scale_y_continuous(
-    name = "Mean Protection Effectiveness (%)",
-    labels = function(x) paste0(round(x, 0), "%"),
+    name = "Mean Protection (%)",
+    labels = function(x) round(x, 0),
     breaks = seq(0, 55, by = 10),
     limits = c(0, 55),
     expand = c(0, 0)
@@ -1598,14 +1601,14 @@ p_combined_alt <- ggplot(mean_data,
          fill = guide_legend(title = "Group")) +
   scale_x_continuous(
     name = "Mean foregone harvest opportunity (%)",
-    labels = function(x) paste0(round(x, 0), "%"),
+    labels = function(x) round(x, 0),
     breaks = seq(0, 30, by = 5),
     limits = c(0, 30),
     expand = c(0, 0)
   ) +
   scale_y_continuous(
-    name = "Mean Protection Effectiveness (%)",
-    labels = function(x) paste0(round(x, 0), "%"),
+    name = "Mean Protection (%)",
+    labels = function(x) round(x, 0),
     breaks = seq(0, 55, by = 10),
     limits = c(0, 55),
     expand = c(0, 0)

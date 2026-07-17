@@ -5,7 +5,7 @@
 #
 # QUESTION
 #   Are some regional stock groups more variable than others in WHEN their run
-#   arrives? We quantify this with the coefficient of variation (CV) of the
+#   arrives? We quantify this with the standard deviation (SD, in days) of the
 #   day-of-year (DOY) at which each group reaches 50% of its total seasonal run,
 #   computed across all study years.
 #
@@ -18,17 +18,17 @@
 #   3. For each year x group, take the DOY-at-50% as the FIRST 3-day interval
 #      whose group cumulative percent is >= 50% (matches the "days to 50%"
 #      convention used in Analysis 3 of R/06).
-#   4. Across years, summarise each group's DOY-at-50%: mean, SD, and
-#      CV = 100 * SD / mean. The group ranking by CV answers the question.
+#   4. Across years, summarise each group's DOY-at-50%: mean and SD (in days).
+#      The group ranking by SD answers the question.
 #
 # NOTE ON THE METRIC
-#   CV is reported in percent. Because DOY is measured from Jan 1 (an arbitrary
-#   origin), the absolute SD (in days) is the origin-independent companion
-#   measure and is exported alongside the CV for interpretation.
+#   SD is reported in days. Because DOY is measured from Jan 1 (an arbitrary
+#   origin), SD is origin-independent and is the natural, directly interpretable
+#   measure of how much a group's 50%-run date shifts from year to year.
 #
 # OUTPUTS  (written to outputs/DOY50_Variability/ ; nothing else is touched)
 #   CSV/doy50_by_year.csv             DOY-at-50% for every year x group
-#   CSV/doy50_cv_summary.csv          per-group mean / SD / CV, ranked most->least variable
+#   CSV/doy50_sd_summary.csv          per-group mean / SD, ranked most->least variable
 #   doy50_variability_by_group.png    figure illustrating the result
 ################################################################################
 
@@ -137,31 +137,30 @@ doy50_by_year <- cluster_aggregated %>%
   mutate(cluster = factor(cluster, levels = cluster_order)) %>%
   arrange(cluster, year)
 
-# ---- CV across years, per group ---------------------------------------------
-doy50_cv_summary <- doy50_by_year %>%
+# ---- SD across years, per group ---------------------------------------------
+doy50_sd_summary <- doy50_by_year %>%
   group_by(cluster) %>%
   summarise(
     n_years    = n(),
     mean_doy50 = mean(doy_at_50),
     sd_doy50   = sd(doy_at_50),
-    cv_percent = 100 * sd(doy_at_50) / mean(doy_at_50),
     min_doy50  = min(doy_at_50),
     max_doy50  = max(doy_at_50),
     range_days = max(doy_at_50) - min(doy_at_50),
     .groups = "drop"
   ) %>%
-  arrange(desc(cv_percent)) %>%               # most -> least variable
+  arrange(desc(sd_doy50)) %>%                  # most -> least variable
   mutate(variability_rank = row_number())
 
 # ---- Export CSVs ------------------------------------------------------------
 write_csv(doy50_by_year,
           file.path(DOY50_CSV_DIR, "doy50_by_year.csv"))
-write_csv(doy50_cv_summary,
-          file.path(DOY50_CSV_DIR, "doy50_cv_summary.csv"))
+write_csv(doy50_sd_summary,
+          file.path(DOY50_CSV_DIR, "doy50_sd_summary.csv"))
 
 # ---- Figure -----------------------------------------------------------------
 # Horizontal range plot: each group's yearly DOY-at-50% (points), its across-year
-# range (bar) and mean (white circle), with the CV labelled. Groups are ordered
+# range (bar) and mean (white circle), with the SD labelled. Groups are ordered
 # most -> least variable, so the figure reads top-to-bottom as the answer to
 # "which groups are more variable in run timing?".
 # Colour ramp matches the rest of the paper (R/06_cluster_analysis.R).
@@ -169,14 +168,14 @@ cluster_colors <- colorRampPalette(
   c("#8B0000", "#FF0000", "#FF8C00", "#87CEEB", "#1E90FF", "#000080"))(6)
 names(cluster_colors) <- cluster_order
 
-cv_order <- as.character(doy50_cv_summary$cluster)   # already sorted most -> least
+sd_order <- as.character(doy50_sd_summary$cluster)   # already sorted most -> least
 group_label <- function(x) gsub("Cluster", "Group", x)
 
 plot_pts <- doy50_by_year %>%
-  mutate(cluster = factor(as.character(cluster), levels = cv_order))
-plot_sum <- doy50_cv_summary %>%
-  mutate(cluster  = factor(as.character(cluster), levels = cv_order),
-         cv_label = sprintf("CV = %.1f%%", cv_percent))
+  mutate(cluster = factor(as.character(cluster), levels = sd_order))
+plot_sum <- doy50_sd_summary %>%
+  mutate(cluster  = factor(as.character(cluster), levels = sd_order),
+         sd_label = sprintf("SD = %.1f days", sd_doy50))
 
 x_right <- max(plot_pts$doy_at_50)
 
@@ -194,13 +193,13 @@ p_doy50 <- ggplot() +
   geom_point(data = plot_sum,
              aes(y = cluster, x = mean_doy50, fill = cluster),
              shape = 21, color = "white", size = 5, stroke = 1.6) +
-  # CV label
+  # SD label
   geom_text(data = plot_sum,
-            aes(y = cluster, x = x_right + 1.5, label = cv_label),
+            aes(y = cluster, x = x_right + 1.5, label = sd_label),
             hjust = 0, size = 4, color = "gray25") +
   scale_color_manual(values = cluster_colors, guide = "none") +
   scale_fill_manual(values = cluster_colors, guide = "none") +
-  scale_y_discrete(name = NULL, limits = rev(cv_order), labels = group_label) +
+  scale_y_discrete(name = NULL, limits = rev(sd_order), labels = group_label) +
   scale_x_continuous(name = "Day of year at 50% of cumulative run",
                      breaks = scales::pretty_breaks(n = 6),
                      expand = expansion(mult = c(0.03, 0.20))) +
@@ -208,7 +207,7 @@ p_doy50 <- ggplot() +
     title = "Interannual variability in run timing by group",
     subtitle = paste0("Points = yearly DOY at 50% of run · white circle = mean ",
                       "· bar = across-year range\nGroups ordered most → least ",
-                      "variable (coefficient of variation, CV)")
+                      "variable (standard deviation, SD, in days)")
   ) +
   theme_minimal(base_size = 13) +
   theme(
@@ -230,19 +229,19 @@ DOY50_FIG <- file.path(DOY50_DIR, "doy50_variability_by_group.png")
 ggsave(DOY50_FIG, p_doy50, width = 9, height = 5.5, dpi = 300, bg = "white")
 
 # ---- Console summary --------------------------------------------------------
-cat("\n--- DOY-at-50% by group (CV across years) ---\n")
+cat("\n--- DOY-at-50% by group (SD across years) ---\n")
 print(as.data.frame(
-  doy50_cv_summary %>%
-    mutate(across(c(mean_doy50, sd_doy50, cv_percent), ~round(.x, 3)))
+  doy50_sd_summary %>%
+    mutate(across(c(mean_doy50, sd_doy50), ~round(.x, 3)))
 ), row.names = FALSE)
 
-most  <- doy50_cv_summary$cluster[1]
-least <- doy50_cv_summary$cluster[nrow(doy50_cv_summary)]
-cat(sprintf("\nMost variable group:  %s (CV = %.2f%%)\n",
-            most,  doy50_cv_summary$cv_percent[1]))
-cat(sprintf("Least variable group: %s (CV = %.2f%%)\n",
-            least, doy50_cv_summary$cv_percent[nrow(doy50_cv_summary)]))
+most  <- doy50_sd_summary$cluster[1]
+least <- doy50_sd_summary$cluster[nrow(doy50_sd_summary)]
+cat(sprintf("\nMost variable group:  %s (SD = %.2f days)\n",
+            most,  doy50_sd_summary$sd_doy50[1]))
+cat(sprintf("Least variable group: %s (SD = %.2f days)\n",
+            least, doy50_sd_summary$sd_doy50[nrow(doy50_sd_summary)]))
 cat("\nExported:\n  ", file.path(DOY50_CSV_DIR, "doy50_by_year.csv"),
-    "\n  ", file.path(DOY50_CSV_DIR, "doy50_cv_summary.csv"),
+    "\n  ", file.path(DOY50_CSV_DIR, "doy50_sd_summary.csv"),
     "\n  ", DOY50_FIG, "\n")
 cat("=== DOY-AT-50% VARIABILITY ANALYSIS COMPLETE ===\n\n")
